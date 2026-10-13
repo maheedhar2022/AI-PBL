@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+.env
+
+# Model weights (download separately)
+*.pt
+*.onnx
+*.weights
+*.pth
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Evidence images and recordings (local only)
+evidence/
+recordings/
+
+# Research data (never commit raw footage or private data)
+research/datasets/*/images/
+research/datasets/*/labels/
+
+# Evaluation reports (auto-generated)
+research/reports/*.json
+research/reports/*.csv
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs & PIDs
+*.log
+logs/
+*.pid
+.pytest_cache/
+
+# Secrets
+.env
+*.pem
+*.key
+
+

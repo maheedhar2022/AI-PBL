@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-950 text-gray-100 font-sans;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-gray-900 border border-gray-800 rounded-xl p-4 shadow-lg;
+  }
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors;
+  }
+  .btn-secondary {
+    @apply bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-pending {
+    @apply badge bg-yellow-900/50 text-yellow-300;
+  }
+  .badge-confirmed {
+    @apply badge bg-red-900/50 text-red-300;
+  }
+  .badge-dismissed {
+    @apply badge bg-gray-800 text-gray-400;
+  }
+  .badge-helmet {
+    @apply badge bg-orange-900/50 text-orange-300;
+  }
+  .badge-triple {
+    @apply badge bg-purple-900/50 text-purple-300;
+  }
+  .stat-card {
+    @apply card flex flex-col gap-2;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors cursor-pointer;
+  }
+  .sidebar-link.active {
+    @apply bg-blue-900/40 text-blue-300 border border-blue-800/50;
+  }
+}
+
