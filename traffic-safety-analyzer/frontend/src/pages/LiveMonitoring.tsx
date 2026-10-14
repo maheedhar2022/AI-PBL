@@ -127,6 +127,16 @@ export default function LiveMonitoring() {
     setFrame(null)
   }
 
+  const handleTakeSnapshot = () => {
+    if (!frame) return
+    const a = document.createElement('a')
+    a.href = `data:image/jpeg;base64,${frame}`
+    a.download = `cctv_snapshot_${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
   const counts = metrics.vehicle_counts || {}
 
   return (
@@ -185,14 +195,25 @@ export default function LiveMonitoring() {
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 disabled:opacity-50"
               placeholder="Source: 0 (webcam), path/to/video.webm, rtsp://..., or http://...m3u8"
             />
-            {!running
-              ? <button onClick={handleStart} className="btn-primary flex items-center gap-2">
-                  <Play className="w-4 h-4" /> Start Feed
+            {!running ? (
+              <button onClick={handleStart} className="btn-primary flex items-center gap-2">
+                <Play className="w-4 h-4" /> Start Feed
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleTakeSnapshot}
+                  disabled={!frame}
+                  className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-40"
+                  title="Capture current frame crop as JPEG"
+                >
+                  <Camera className="w-4 h-4 text-cyan-400" /> Snapshot
                 </button>
-              : <button onClick={handleStop} className="btn-danger flex items-center gap-2">
+                <button onClick={handleStop} className="btn-danger flex items-center gap-2">
                   <Square className="w-4 h-4" /> Stop Feed
                 </button>
-            }
+              </div>
+            )}
           </div>
 
           {/* Video Frame Canvas */}

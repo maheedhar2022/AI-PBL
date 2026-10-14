@@ -89,3 +89,4 @@ cd traffic-safety-analyzer
 cd traffic-safety-analyzer
 .venv/bin/pytest tests/ -v
 ```
+

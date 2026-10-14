@@ -257,34 +257,35 @@ class ViolationPipeline:
                 moto_track_id=moto.track_id,
                 rider_tracks=rider_tracks,
                 frame_detections_class_ids=frame_class_ids,
+                frame=captured.frame,
             )
-            if helmet_result and helmet_result.outcome in (OUTCOME_POTENTIAL, OUTCOME_UNCERTAIN):
-                if helmet_result.outcome == OUTCOME_POTENTIAL:
-                    async with AsyncSessionLocal() as db:
-                        inc = await create_incident(
-                            db=db,
-                            violation_type=VIOLATION_TYPE_HELMET,
-                            track_id=moto.track_id,
-                            confidence=helmet_result.confidence,
-                            camera_source=captured.source,
-                            frame=annotated_frame,
-                            metadata={
-                                "outcome": helmet_result.outcome,
-                                "rider_count": len(rider_ids),
-                                "frames_evaluated": helmet_result.frames_evaluated,
-                                "details": helmet_result.details,
-                            },
-                            outcome=helmet_result.outcome,
-                        )
-                        if inc:
-                            self.metrics.incidents_created += 1
-                            if self._broadcast:
-                                await self._broadcast({
-                                    "type": "new_incident",
-                                    "incident_id": inc.id,
-                                    "violation_type": inc.violation_type,
-                                    "confidence": inc.confidence,
-                                })
+            if helmet_result and helmet_result.outcome == OUTCOME_POTENTIAL:
+                async with AsyncSessionLocal() as db:
+                    inc = await create_incident(
+                        db=db,
+                        violation_type=VIOLATION_TYPE_HELMET,
+                        track_id=moto.track_id,
+                        confidence=helmet_result.confidence,
+                        camera_source=captured.source,
+                        frame=annotated_frame,
+                        metadata={
+                            "outcome": helmet_result.outcome,
+                            "rider_count": len(rider_ids),
+                            "frames_evaluated": helmet_result.frames_evaluated,
+                            "details": helmet_result.details,
+                        },
+                        outcome=helmet_result.outcome,
+                        rider_count=len(rider_ids),
+                    )
+                    if inc:
+                        self.metrics.incidents_created += 1
+                        if self._broadcast:
+                            await self._broadcast({
+                                "type": "new_incident",
+                                "incident_id": inc.id,
+                                "violation_type": inc.violation_type,
+                                "confidence": inc.confidence,
+                            })
 
             # ── Triple riding analysis ───────────────────────────────────
             triple_result = self._triple_analyzer.update(

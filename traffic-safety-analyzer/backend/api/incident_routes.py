@@ -3,6 +3,9 @@ Incident CRUD API routes.
 """
 from __future__ import annotations
 
+import csv
+import io
+import json
 from datetime import datetime
 from typing import Any, List, Optional
 
@@ -86,6 +89,79 @@ async def list_incidents(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/export")
+async def export_incidents(
+    format: str = Query("csv", pattern="^(csv|json)$"),
+    violation_type: Optional[str] = Query(None),
+    review_status: Optional[str] = Query(None),
+    camera_source: Optional[str] = Query(None),
+    start_time: Optional[datetime] = Query(None),
+    end_time: Optional[datetime] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    q = select(Incident).order_by(Incident.event_timestamp.desc())
+
+    if violation_type:
+        q = q.where(Incident.violation_type == violation_type)
+    if review_status:
+        q = q.where(Incident.review_status == review_status)
+    if camera_source:
+        q = q.where(Incident.camera_source == camera_source)
+    if start_time:
+        q = q.where(Incident.event_timestamp >= start_time)
+    if end_time:
+        q = q.where(Incident.event_timestamp <= end_time)
+
+    rows = (await db.execute(q)).scalars().all()
+
+    if format == "json":
+        data = [
+            {
+                "id": r.id,
+                "violation_type": r.violation_type,
+                "event_timestamp": r.event_timestamp.isoformat(),
+                "camera_source": r.camera_source,
+                "track_id": r.track_id,
+                "confidence": r.confidence,
+                "review_status": r.review_status,
+                "outcome": r.outcome,
+                "rider_count": r.rider_count,
+                "reviewer_notes": r.reviewer_notes,
+            }
+            for r in rows
+        ]
+        return Response(
+            content=json.dumps(data, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=incidents_export.json"},
+        )
+    else:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "id", "violation_type", "event_timestamp", "camera_source",
+            "track_id", "confidence", "review_status", "outcome", "rider_count", "reviewer_notes"
+        ])
+        for r in rows:
+            writer.writerow([
+                r.id,
+                r.violation_type,
+                r.event_timestamp.isoformat(),
+                r.camera_source,
+                r.track_id if r.track_id is not None else "",
+                r.confidence,
+                r.review_status,
+                r.outcome,
+                r.rider_count if r.rider_count is not None else "",
+                r.reviewer_notes or "",
+            ])
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=incidents_export.csv"},
+        )
 
 
 @router.get("/{incident_id}", response_model=IncidentOut)

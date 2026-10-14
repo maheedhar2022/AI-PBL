@@ -12,7 +12,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -73,7 +73,7 @@ class EvaluationMetrics:
     false_positives: int = 0
     false_negatives: int = 0
     per_class: Dict[str, Any] = field(default_factory=dict)
-    evaluated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    evaluated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     status: str = "completed"
     error_message: str = ""
 
@@ -369,7 +369,7 @@ async def run_evaluation(
     # Save results
     settings.results_dir.mkdir(parents=True, exist_ok=True)
     result_id = str(uuid.uuid4())[:8]
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out_path = settings.results_dir / f"eval_{ts}_{result_id}.json"
 
     result_data = {

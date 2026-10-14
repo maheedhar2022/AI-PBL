@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Settings, Cpu, Camera, HardDrive, RefreshCw } from 'lucide-react'
-import { getSettings, getModelInfo, configureCamera } from '../services/api'
+import { Settings, Cpu, Camera, HardDrive, RefreshCw, Save, CheckCircle } from 'lucide-react'
+import { getSettings, getModelInfo, configureCamera, updateSettings } from '../services/api'
 
 interface AppSettings {
   model_name: string
@@ -26,6 +26,13 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null)
   const [cameraSource, setCameraSource] = useState('')
+  const [confThresh, setConfThresh] = useState('0.40')
+  const [iouThresh, setIouThresh] = useState('0.45')
+  const [targetFps, setTargetFps] = useState('10')
+  const [helmetFrames, setHelmetFrames] = useState('5')
+  const [tripleFrames, setTripleFrames] = useState('5')
+  const [dedupSecs, setDedupSecs] = useState('30')
+  const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null)
 
   const load = useCallback(async () => {
@@ -33,6 +40,12 @@ export default function SettingsPage() {
       const [s, m] = await Promise.all([getSettings(), getModelInfo()])
       setSettings(s)
       setCameraSource(s.camera_source)
+      setConfThresh(String(s.confidence_threshold))
+      setIouThresh(String(s.iou_threshold))
+      setTargetFps(String(s.camera_fps_target))
+      setHelmetFrames(String(s.helmet_frames_required))
+      setTripleFrames(String(s.triple_frames_required))
+      setDedupSecs(String(s.dedup_seconds))
       setModelInfo(m)
     } catch {}
   }, [])
@@ -42,10 +55,32 @@ export default function SettingsPage() {
   const handleCameraUpdate = async () => {
     try {
       await configureCamera(cameraSource)
-      setMessage({ text: 'Camera source updated (restart monitoring to apply).', ok: true })
+      setMessage({ text: 'Camera source updated. Restart monitoring to apply.', ok: true })
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       setMessage({ text: err?.response?.data?.detail ?? 'Failed to update camera.', ok: false })
+    }
+  }
+
+  const handleSaveDynamicSettings = async () => {
+    setSaving(true)
+    setMessage(null)
+    try {
+      await updateSettings({
+        confidence_threshold: parseFloat(confThresh),
+        iou_threshold: parseFloat(iouThresh),
+        camera_fps_target: parseInt(targetFps, 10),
+        helmet_frames_required: parseInt(helmetFrames, 10),
+        triple_frames_required: parseInt(tripleFrames, 10),
+        dedup_seconds: parseInt(dedupSecs, 10),
+      })
+      await load()
+      setMessage({ text: '✓ Dynamic settings saved and applied to runtime!', ok: true })
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      setMessage({ text: err?.response?.data?.detail ?? 'Failed to save settings.', ok: false })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -61,8 +96,8 @@ export default function SettingsPage() {
     <div className="p-6 space-y-6 max-w-3xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
-          <p className="text-gray-400 text-sm">Configuration overview (edit via .env to persist)</p>
+          <h1 className="text-2xl font-bold text-white">System Settings & Thresholds</h1>
+          <p className="text-gray-400 text-sm">Configure detection sensitivity, tracking parameters, and camera sources</p>
         </div>
         <button onClick={load} className="btn-secondary flex items-center gap-2 text-sm">
           <RefreshCw className="w-4 h-4" /> Refresh
@@ -70,20 +105,120 @@ export default function SettingsPage() {
       </div>
 
       {message && (
-        <div className={`rounded-lg px-4 py-3 text-sm ${message.ok ? 'bg-green-900/30 border border-green-700 text-green-300' : 'bg-red-900/30 border border-red-700 text-red-300'}`}>
+        <div className={`rounded-lg px-4 py-3 text-sm flex items-center gap-2 ${message.ok ? 'bg-green-900/30 border border-green-700 text-green-300' : 'bg-red-900/30 border border-red-700 text-red-300'}`}>
+          {message.ok && <CheckCircle className="w-4 h-4" />}
           {message.text}
         </div>
       )}
 
+      {/* Dynamic Thresholds Form */}
+      <div className="card space-y-4 border border-blue-900/50">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-white flex items-center gap-2">
+            <Settings className="w-4 h-4 text-blue-400" />
+            Dynamic Detection & Rule Thresholds
+          </h2>
+          <button
+            onClick={handleSaveDynamicSettings}
+            disabled={saving}
+            className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3 disabled:opacity-50"
+          >
+            <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">
+              Confidence Threshold ({confThresh})
+            </label>
+            <input
+              type="range"
+              min="0.10"
+              max="0.90"
+              step="0.05"
+              value={confThresh}
+              onChange={e => setConfThresh(e.target.value)}
+              className="w-full accent-blue-500"
+            />
+            <span className="text-[10px] text-gray-500">Lower for more detections; higher to reduce false alarms</span>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">
+              IoU Threshold ({iouThresh})
+            </label>
+            <input
+              type="range"
+              min="0.10"
+              max="0.90"
+              step="0.05"
+              value={iouThresh}
+              onChange={e => setIouThresh(e.target.value)}
+              className="w-full accent-blue-500"
+            />
+            <span className="text-[10px] text-gray-500">Non-max suppression bounding-box overlap threshold</span>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Target Capture FPS</label>
+            <input
+              type="number"
+              min="1"
+              max="60"
+              value={targetFps}
+              onChange={e => setTargetFps(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Deduplication Window (Seconds)</label>
+            <input
+              type="number"
+              min="1"
+              max="300"
+              value={dedupSecs}
+              onChange={e => setDedupSecs(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Helmet Violation Required Frames</label>
+            <input
+              type="number"
+              min="1"
+              max="30"
+              value={helmetFrames}
+              onChange={e => setHelmetFrames(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Triple Riding Required Frames</label>
+            <input
+              type="number"
+              min="1"
+              max="30"
+              value={tripleFrames}
+              onChange={e => setTripleFrames(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Camera */}
-      <Section icon={<Camera className="w-4 h-4 text-blue-400" />} title="Camera Source">
+      <Section icon={<Camera className="w-4 h-4 text-cyan-400" />} title="Camera Source Configuration">
         <div className="space-y-3">
-          <Row label="Current Source" value={settings.camera_source} />
-          <Row label="Target FPS" value={String(settings.camera_fps_target)} />
+          <Row label="Active Source" value={settings.camera_source} />
+          <Row label="Target Processing Rate" value={`${settings.camera_fps_target} FPS`} />
           <div className="flex gap-2 pt-1">
             <input
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500"
-              placeholder='0 = webcam, or path/to/video.mp4, rtsp://...'
+              placeholder='0 = webcam, or path/to/video.webm, rtsp://...'
               value={cameraSource}
               onChange={e => setCameraSource(e.target.value)}
             />
@@ -95,51 +230,34 @@ export default function SettingsPage() {
       </Section>
 
       {/* Model */}
-      <Section icon={<Cpu className="w-4 h-4 text-purple-400" />} title="AI Model">
+      <Section icon={<Cpu className="w-4 h-4 text-purple-400" />} title="AI Detector Architecture">
         <div className="space-y-2">
-          <Row label="Model Name" value={settings.model_name} />
-          <Row label="Status" value={modelInfo?.loaded ? '✓ Loaded' : '✗ Not loaded'} />
-          <Row label="Confidence Threshold" value={String(settings.confidence_threshold)} />
-          <Row label="IoU Threshold" value={String(settings.iou_threshold)} />
-          <Row label="Inference Width" value={`${settings.inference_width}px`} />
-          <Row label="Inference Height" value={`${settings.inference_height}px`} />
+          <Row label="Model Weights" value={settings.model_name} />
+          <Row label="Weights Status" value={modelInfo?.loaded ? '✓ Model Ready & Loaded' : '✗ Not loaded'} />
+          <Row label="Input Resolution" value={`${settings.inference_width} × ${settings.inference_height} px`} />
         </div>
         {modelInfo?.loaded && (
           <div className="mt-3">
-            <div className="text-xs text-gray-500 mb-2">Supported Classes ({Object.keys(modelInfo.classes).length})</div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="text-xs text-gray-500 mb-2 font-medium">Supported Classes ({Object.keys(modelInfo.classes).length})</div>
+            <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1 bg-gray-900/50 rounded-lg border border-gray-800">
               {Object.entries(modelInfo.classes).map(([id, name]) => (
-                <span key={id} className="badge bg-gray-800 text-gray-300 text-xs">{id}: {name}</span>
+                <span key={id} className="badge bg-gray-800 text-gray-300 text-[11px] font-mono">{id}: {name}</span>
               ))}
             </div>
-            <p className="text-xs text-yellow-500/80 mt-2">
-              ⚠️ Standard COCO models do not include helmet-specific classes. Helmet detection
-              uses spatial heuristics or requires a custom fine-tuned model.
+            <p className="text-xs text-cyan-400/90 mt-2">
+              💡 Helmet analysis uses dedicated head-region HSV color & texture computer vision heuristics on standard COCO models, and supports custom fine-tuned weights when configured.
             </p>
           </div>
         )}
       </Section>
 
-      {/* Violation Rules */}
-      <Section icon={<Settings className="w-4 h-4 text-orange-400" />} title="Violation Rules">
-        <div className="space-y-2">
-          <Row label="Helmet Frames Required" value={String(settings.helmet_frames_required)} />
-          <Row label="Triple Riding Frames Required" value={String(settings.triple_frames_required)} />
-          <Row label="Deduplication Window" value={`${settings.dedup_seconds}s`} />
-        </div>
-        <p className="text-xs text-gray-600 mt-2">
-          Edit these values in the <code className="text-gray-400">.env</code> file and restart the backend to apply changes.
-        </p>
-      </Section>
-
       {/* Storage */}
-      <Section icon={<HardDrive className="w-4 h-4 text-green-400" />} title="Storage">
+      <Section icon={<HardDrive className="w-4 h-4 text-green-400" />} title="Evidence Storage & Audit Trail">
         <div className="space-y-2">
           <Row label="Evidence Directory" value={settings.evidence_dir} />
         </div>
-        <p className="text-xs text-gray-600 mt-2">
-          Evidence images are stored locally. Configure <code className="text-gray-400">EVIDENCE_DIR</code> in
-          <code className="text-gray-400"> .env</code> to change the location.
+        <p className="text-xs text-gray-500 mt-2">
+          Evidence crops are stored locally with SHA timestamps and metadata references in SQLite.
         </p>
       </Section>
     </div>
@@ -164,10 +282,9 @@ function Section({ icon, title, children }: {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-gray-800 pb-1 last:border-0 last:pb-0">
-      <span className="text-gray-500 text-sm">{label}</span>
-      <span className="text-gray-200 text-sm font-mono">{value}</span>
+    <div className="flex items-center justify-between border-b border-gray-800 pb-1 last:border-0 last:pb-0 text-xs">
+      <span className="text-gray-500">{label}</span>
+      <span className="text-gray-200 font-mono">{value}</span>
     </div>
   )
 }
-
