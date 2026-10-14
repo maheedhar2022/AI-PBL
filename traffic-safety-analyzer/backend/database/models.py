@@ -34,6 +34,7 @@ class Incident(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     outcome: Mapped[str] = mapped_column(String(64), default="potential_violation")
     rider_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vehicle_number: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
 
 class ExperimentResult(Base):

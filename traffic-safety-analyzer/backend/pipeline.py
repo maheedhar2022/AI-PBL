@@ -35,6 +35,7 @@ from backend.tracking.tracker import SimpleIOUTracker, Track
 from backend.tracking.deep_sort_tracker import DeepSortTracker
 from backend.models.registry import get_model_registry
 from backend.association.rider_assoc import associate_riders_to_motorcycles
+from backend.models.plate_recognizer import get_plate_stabilizer
 from backend.violations.helmet_analyzer import HelmetViolationAnalyzer
 from backend.violations.triple_analyzer import TripleRidingAnalyzer
 
@@ -95,8 +96,8 @@ class PipelineMetrics:
             "traffic_density": self.traffic_density,
             "deep_learning": {
                 "active": True,
-                "models": ["YOLOv8", "DeepHelmetCNN-SE", "DeepSORT-128", "ViolationMLP-16"],
-                "total_params": "3.83M",
+                "models": ["YOLOv8", "DeepHelmetCNN-SE", "DeepSORT-128", "ViolationMLP-16", "IndianANPR-HSRP"],
+                "total_params": "3.90M",
                 "device": "CPU / Neural Engine",
             },
         }
@@ -191,7 +192,7 @@ class ViolationPipeline:
         self._frame_queue = frame_queue
         self._broadcast = broadcast_fn  # async callable for WS notifications
 
-        # Deep Learning Sub-modules: DeepSORT (Kalman + Re-ID), DeepHelmetCNN, ViolationRiskMLP
+        # Deep Learning Sub-modules: DeepSORT (Kalman + Re-ID), DeepHelmetCNN, ViolationRiskMLP, IndianPlateDetector
         reg = get_model_registry()
         self._vehicle_tracker = DeepSortTracker(
             reid_extractor=reg.reid_extractor,
@@ -205,6 +206,8 @@ class ViolationPipeline:
         )
         self._helmet_analyzer = HelmetViolationAnalyzer(deep_classifier=reg.helmet_classifier)
         self._triple_analyzer = TripleRidingAnalyzer(deep_classifier=reg.violation_classifier)
+        self._plate_detector = reg.plate_detector
+        self._plate_stabilizer = get_plate_stabilizer()
         self._recorder = VideoRecorder(
             output_dir=settings.evidence_dir / "recordings",
             fps=settings.camera_fps_target,
@@ -243,6 +246,7 @@ class ViolationPipeline:
         self._person_tracker.reset()
         self._helmet_analyzer.reset()
         self._triple_analyzer.reset()
+        self._plate_stabilizer.reset()
         logger.info("ViolationPipeline stopped.")
 
     def reset_trackers(self) -> None:
@@ -251,6 +255,7 @@ class ViolationPipeline:
         self._person_tracker.reset()
         self._helmet_analyzer.reset()
         self._triple_analyzer.reset()
+        self._plate_stabilizer.reset()
         self._latest_annotated_frame = None
         self._latest_frame_b64 = None
         logger.info("ViolationPipeline trackers and frame buffers reset.")
@@ -422,6 +427,14 @@ class ViolationPipeline:
                 else:
                     rider_tags[r.track_id] = ("DL RIDER", (255, 180, 0))
 
+            # Run Indian ANPR Plate Recognition on the motorcycle
+            plate_res = self._plate_detector.recognize_plate(
+                frame=captured.frame,
+                vehicle_bbox=moto.bbox,
+                track_id=moto.track_id,
+            )
+            stable_plate = self._plate_stabilizer.update(moto.track_id, plate_res)
+
             # Class IDs present in this frame for this motorcycle's region
             frame_class_ids = [r.class_id for r in rider_tracks]
 
@@ -446,9 +459,13 @@ class ViolationPipeline:
                             "rider_count": len(rider_ids),
                             "frames_evaluated": helmet_result.frames_evaluated,
                             "details": helmet_result.details,
+                            "vehicle_number": stable_plate,
+                            "plate_confidence": plate_res.confidence,
+                            "plate_state": plate_res.state_name,
                         },
                         outcome=helmet_result.outcome,
                         rider_count=len(rider_ids),
+                        vehicle_number=stable_plate,
                     )
                     if inc:
                         self.metrics.incidents_created += 1
@@ -458,6 +475,7 @@ class ViolationPipeline:
                                 "incident_id": inc.id,
                                 "violation_type": inc.violation_type,
                                 "confidence": inc.confidence,
+                                "vehicle_number": inc.vehicle_number,
                             })
 
             # ── Triple riding analysis ───────────────────────────────────
@@ -468,14 +486,23 @@ class ViolationPipeline:
                 frame_shape=captured.frame.shape[:2],
             )
 
-            # Deep risk tag for motorcycle
+            # Deep risk tag and Indian ANPR badge for motorcycle
             rider_count = len(rider_ids)
+            has_no_helmet = any(
+                rider_tags.get(r.track_id, ("", ()))[0].startswith("DL NO-HELMET")
+                for r in rider_tracks
+            )
+            plate_badge = f" | 🇮🇳 {stable_plate}" if stable_plate else ""
             if rider_count >= 3:
-                moto_tags[moto.track_id] = (f"🚨 DL TRIPLE RIDING ({rider_count} RIDERS)", (0, 0, 255))
+                moto_tags[moto.track_id] = (f"🚨 DL TRIPLE RIDING ({rider_count} RIDERS){plate_badge}", (0, 0, 255))
+            elif has_no_helmet:
+                moto_tags[moto.track_id] = (f"🚨 DL NO-HELMET{plate_badge}", (0, 0, 255))
             elif rider_count == 2:
-                moto_tags[moto.track_id] = ("DL RIDING (2 RIDERS)", (0, 220, 255))
+                moto_tags[moto.track_id] = (f"DL RIDING (2 RIDERS){plate_badge}", (0, 220, 255))
             elif rider_count == 1:
-                moto_tags[moto.track_id] = ("DL RIDING (1 RIDER)", (0, 255, 120))
+                moto_tags[moto.track_id] = (f"DL RIDING (1 RIDER){plate_badge}", (0, 255, 120))
+            else:
+                moto_tags[moto.track_id] = (f"MOTORCYCLE{plate_badge}", (0, 255, 200))
 
             if triple_result and triple_result.outcome == OUTCOME_POTENTIAL:
                 async with AsyncSessionLocal() as db:
@@ -491,9 +518,13 @@ class ViolationPipeline:
                             "estimated_rider_count": triple_result.estimated_rider_count,
                             "frames_evaluated": triple_result.frames_evaluated,
                             "details": triple_result.details,
+                            "vehicle_number": stable_plate,
+                            "plate_confidence": plate_res.confidence,
+                            "plate_state": plate_res.state_name,
                         },
                         outcome=triple_result.outcome,
                         rider_count=int(round(triple_result.estimated_rider_count)),
+                        vehicle_number=stable_plate,
                     )
                     if inc:
                         self.metrics.incidents_created += 1
@@ -503,6 +534,7 @@ class ViolationPipeline:
                                 "incident_id": inc.id,
                                 "violation_type": inc.violation_type,
                                 "confidence": inc.confidence,
+                                "vehicle_number": inc.vehicle_number,
                             })
 
         return rider_tags, moto_tags
@@ -542,8 +574,8 @@ class ViolationPipeline:
         cv2.putText(frame, hud_text, (10, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (240, 240, 240), 1, cv2.LINE_AA)
         cv2.circle(frame, (w - 20, 14), 5, density_color, -1)
 
-        # Row 2: Deep Learning Neural Pipeline Indicator
-        ai_hud = "AI PIPELINE: YOLOv8-CSP (3.15M) | DeepHelmetCNN-SE | DeepSORT Re-ID (128-d) | ViolationMLP"
+        # Row 2: Deep Learning Neural Pipeline Indicator with Indian ANPR
+        ai_hud = "AI PIPELINE: YOLOv8-CSP | DeepHelmetCNN-SE | DeepSORT Re-ID | ViolationMLP | IndianANPR-HSRP"
         cv2.putText(frame, ai_hud, (10, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (215, 130, 255), 1, cv2.LINE_AA)
 
         if self._recorder.is_recording:

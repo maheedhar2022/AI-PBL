@@ -49,6 +49,7 @@ interface DeepModelsRegistryInfo {
     helmet_classifier: DeepModelSpec
     reid_extractor: DeepModelSpec
     violation_classifier: DeepModelSpec
+    plate_recognizer?: DeepModelSpec
   }
   total_deep_parameters: number
 }
@@ -69,6 +70,7 @@ interface BenchmarkData {
     helmet_cnn_inference: BenchmarkResult
     reid_embedding_extraction: BenchmarkResult
     violation_mlp_risk: BenchmarkResult
+    anpr_plate_recognition?: BenchmarkResult
   }
   timestamp: number
 }
@@ -203,6 +205,7 @@ export default function SettingsPage() {
   }
 
   const CAMERA_PRESETS = [
+    { label: '🇮🇳 Indian Road Traffic CCTV', path: 'research/datasets/indian_road_traffic_cctv.webm' },
     { label: '🛣️ SF Road Traffic CCTV', path: 'research/datasets/real_cctv_traffic.webm' },
     { label: '🏙️ Urban Roadway CCTV', path: 'research/datasets/motorcycle_traffic_cctv.webm' },
     { label: '🏍️ Motorcycle Test Clip', path: 'research/datasets/test_video.mp4' },
@@ -559,6 +562,26 @@ export default function SettingsPage() {
               <div>Classes: [Safe, Triple Riding, Dangerous Maneuver]</div>
             </div>
           </div>
+
+          {/* 5. IndianANPR-DeepPlateOCRNet */}
+          <div className="bg-gray-800/40 p-3.5 rounded-lg border border-gray-800 space-y-2 md:col-span-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                <span className="text-sm">🇮🇳</span>
+                IndianANPR-DeepPlateOCRNet (MoRTH HSRP)
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950 border border-indigo-800 text-indigo-300 font-mono">
+                {dlSpecs?.models?.plate_recognizer?.parameters ? `${Math.round(dlSpecs.models.plate_recognizer.parameters / 1000)}k params` : '71k params'}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-400">
+              Residual Deep CNN OCR engine with morphological Sobel ROI localization and grammar validation for Indian High Security Registration Plates across all 28+ states and UTs.
+            </p>
+            <div className="text-[10px] font-mono text-gray-400 space-y-0.5 pt-1 border-t border-gray-800/60">
+              <div>Input: 1×32×96 Grayscale Plate ROI · Format: [State 2L] [RTO 2D] [Series 1-2L] [Number 4D]</div>
+              <div>Grammar: Indian MoRTH Syntax Sanitizer & Character Substitution Disambiguation (O/0, B/8, I/1)</div>
+            </div>
+          </div>
         </div>
 
         {/* Live Benchmark Results Display */}
@@ -566,9 +589,9 @@ export default function SettingsPage() {
           <div className="bg-purple-950/30 border border-purple-800/60 rounded-lg p-3 space-y-2 animate-fadeIn">
             <div className="flex items-center justify-between text-xs text-purple-200 font-medium">
               <span>⚡ Live Neural Network Hardware Benchmark ({benchmarkData.benchmark_iterations} iterations on {benchmarkData.device.toUpperCase()})</span>
-              <span className="font-mono text-[10px] text-purple-300">Total Params: ~3.83M</span>
+              <span className="font-mono text-[10px] text-purple-300">Total Params: ~3.90M</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1 text-center">
               <div className="bg-gray-900/80 p-2 rounded border border-gray-800">
                 <div className="text-[10px] text-gray-400">YOLOv8 Detection</div>
                 <div className="text-sm font-bold text-white font-mono">{benchmarkData.results.yolov8_detection.mean_ms} ms</div>
@@ -589,6 +612,13 @@ export default function SettingsPage() {
                 <div className="text-sm font-bold text-white font-mono">{benchmarkData.results.violation_mlp_risk.mean_ms} ms</div>
                 <div className="text-[10px] text-green-400 font-mono">{benchmarkData.results.violation_mlp_risk.throughput_fps} FPS</div>
               </div>
+              {benchmarkData.results.anpr_plate_recognition && (
+                <div className="bg-gray-900/80 p-2 rounded border border-gray-800">
+                  <div className="text-[10px] text-gray-400">Indian ANPR OCR</div>
+                  <div className="text-sm font-bold text-white font-mono">{benchmarkData.results.anpr_plate_recognition.mean_ms} ms</div>
+                  <div className="text-[10px] text-yellow-400 font-mono">{benchmarkData.results.anpr_plate_recognition.throughput_fps} FPS</div>
+                </div>
+              )}
             </div>
           </div>
         )}

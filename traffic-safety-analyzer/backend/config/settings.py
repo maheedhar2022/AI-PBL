@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
 
     # Camera
-    camera_source: str = "0"  # "0" = webcam; path for file
+    camera_source: str = "research/datasets/indian_road_traffic_cctv.webm"  # Real Indian Road Traffic CCTV
     camera_fps_target: int = 10
     inference_width: int = 640
     inference_height: int = 640

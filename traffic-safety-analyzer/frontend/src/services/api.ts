@@ -45,6 +45,7 @@ export interface IncidentFilters {
   violation_type?: string
   review_status?: string
   camera_source?: string
+  vehicle_number?: string
   start_time?: string
   end_time?: string
   page?: number

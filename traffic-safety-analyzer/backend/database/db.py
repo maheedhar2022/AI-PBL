@@ -21,14 +21,21 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+from sqlalchemy import text
+
+
 class Base(DeclarativeBase):
     pass
 
 
 async def init_db() -> None:
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist and run non-destructive schema migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE incidents ADD COLUMN vehicle_number VARCHAR(32)"))
+        except Exception:
+            pass  # column already exists
 
 
 async def get_db() -> AsyncSession:  # type: ignore[return]

@@ -78,6 +78,7 @@ async def create_incident(
     metadata: dict,
     outcome: str = OUTCOME_POTENTIAL,
     rider_count: Optional[int] = None,
+    vehicle_number: Optional[str] = None,
 ) -> Optional[Incident]:
     """
     Create and persist an incident, saving an evidence image.
@@ -110,6 +111,7 @@ async def create_incident(
         review_status=REVIEW_STATUS_PENDING,
         outcome=outcome,
         rider_count=rider_count,
+        vehicle_number=vehicle_number,
     )
 
     db.add(incident)

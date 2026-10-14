@@ -37,6 +37,7 @@ interface WsEvent {
   incident_id?: string
   violation_type?: string
   confidence?: number
+  vehicle_number?: string
 }
 
 interface RecordingItem {
@@ -52,6 +53,11 @@ interface SnapshotItem {
 }
 
 const PRESETS = [
+  {
+    name: '🇮🇳 Indian Road Traffic CCTV (Link Road, Cuttack)',
+    path: 'research/datasets/indian_road_traffic_cctv.webm',
+    desc: 'Real open-source Indian roadway CCTV footage (Link Road, Cuttack) with motorcycles, auto-rickshaws, and cars',
+  },
   {
     name: '🛣️ Road Traffic CCTV (SF Street)',
     path: 'research/datasets/real_cctv_traffic.webm',
@@ -79,7 +85,7 @@ export default function LiveMonitoring() {
   const [frame, setFrame] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<PipelineMetrics>({})
   const [alerts, setAlerts] = useState<WsEvent[]>([])
-  const [cameraSource, setCameraSource] = useState('research/datasets/real_cctv_traffic.webm')
+  const [cameraSource, setCameraSource] = useState('research/datasets/indian_road_traffic_cctv.webm')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -660,6 +666,17 @@ export default function LiveMonitoring() {
               </div>
               <span className="badge bg-green-950 text-green-300 text-[10px] font-mono border border-green-800">Active</span>
             </div>
+
+            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
+              <div className="flex items-center gap-2">
+                <span className="text-sm shrink-0">🇮🇳</span>
+                <div>
+                  <div className="font-semibold text-white">IndianANPR-HSRP OCR Net</div>
+                  <div className="text-[10px] text-gray-400">71K params · MoRTH Vehicle Plate Recognition</div>
+                </div>
+              </div>
+              <span className="badge bg-indigo-950 text-indigo-300 text-[10px] font-mono border border-indigo-800">Active</span>
+            </div>
           </div>
         </div>
 
@@ -689,13 +706,20 @@ export default function LiveMonitoring() {
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto flex-1">
               {alerts.map((ev, i) => (
-                <div key={i} className="bg-gray-800 border border-gray-700/60 rounded-lg p-3 space-y-1 shadow-sm">
+                <div key={i} className="bg-gray-800 border border-gray-700/60 rounded-lg p-3 space-y-1.5 shadow-sm">
                   <div className="flex items-center justify-between">
                     <span className={ev.violation_type === 'helmet_violation' ? 'badge-helmet' : 'badge badge-triple'}>
                       {ev.violation_type === 'helmet_violation' ? 'Helmet Alert' : 'Triple Riding'}
                     </span>
                     <span className="text-xs text-gray-400 font-mono">{((ev.confidence ?? 0) * 100).toFixed(0)}%</span>
                   </div>
+                  {ev.vehicle_number && (
+                    <div className="flex items-center gap-1.5 py-0.5">
+                      <span className="text-[11px] font-mono bg-yellow-950/80 text-yellow-300 border border-yellow-700/70 px-2 py-0.5 rounded font-bold tracking-wider flex items-center gap-1.5 shadow-inner">
+                        <span>🇮🇳</span> {ev.vehicle_number}
+                      </span>
+                    </div>
+                  )}
                   <div className="text-xs text-gray-500 font-mono truncate">Incident: {ev.incident_id?.slice(0, 8)}</div>
                 </div>
               ))}

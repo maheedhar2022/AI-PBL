@@ -36,6 +36,7 @@ class IncidentOut(BaseModel):
     created_at: datetime
     outcome: str
     rider_count: Optional[int]
+    vehicle_number: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -77,6 +78,7 @@ async def list_incidents(
     violation_type: Optional[str] = Query(None),
     review_status: Optional[str] = Query(None),
     camera_source: Optional[str] = Query(None),
+    vehicle_number: Optional[str] = Query(None),
     start_time: Optional[datetime] = Query(None),
     end_time: Optional[datetime] = Query(None),
     page: int = Query(1, ge=1),
@@ -91,6 +93,8 @@ async def list_incidents(
         q = q.where(Incident.review_status == review_status)
     if camera_source:
         q = q.where(Incident.camera_source == camera_source)
+    if vehicle_number:
+        q = q.where(Incident.vehicle_number.ilike(f"%{vehicle_number}%"))
     if start_time:
         q = q.where(Incident.event_timestamp >= start_time)
     if end_time:
@@ -147,6 +151,7 @@ async def export_incidents(
                 "review_status": r.review_status,
                 "outcome": r.outcome,
                 "rider_count": r.rider_count,
+                "vehicle_number": r.vehicle_number,
                 "reviewer_notes": r.reviewer_notes,
             }
             for r in rows
@@ -161,7 +166,7 @@ async def export_incidents(
         writer = csv.writer(output)
         writer.writerow([
             "id", "violation_type", "event_timestamp", "camera_source",
-            "track_id", "confidence", "review_status", "outcome", "rider_count", "reviewer_notes"
+            "track_id", "confidence", "review_status", "outcome", "rider_count", "vehicle_number", "reviewer_notes"
         ])
         for r in rows:
             writer.writerow([
@@ -174,6 +179,7 @@ async def export_incidents(
                 r.review_status,
                 r.outcome,
                 r.rider_count if r.rider_count is not None else "",
+                r.vehicle_number or "",
                 r.reviewer_notes or "",
             ])
         return Response(

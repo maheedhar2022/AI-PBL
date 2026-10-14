@@ -25,6 +25,7 @@ interface Incident {
   created_at: string
   outcome: string
   rider_count: number | null
+  vehicle_number?: string | null
 }
 
 export default function IncidentExplorer() {
@@ -147,6 +148,7 @@ export default function IncidentExplorer() {
     return (
       inc.id.toLowerCase().includes(q) ||
       (inc.track_id !== null && inc.track_id.toString().includes(q)) ||
+      (inc.vehicle_number && inc.vehicle_number.toLowerCase().includes(q)) ||
       inc.camera_source.toLowerCase().includes(q)
     )
   })
@@ -289,7 +291,7 @@ export default function IncidentExplorer() {
           <Search className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Search by Track ID, Incident ID, or Source..."
+            placeholder="Search by Track ID, Plate (e.g. OD 05, DL 01), Incident ID, or Source..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm placeholder-gray-500"
@@ -360,6 +362,7 @@ export default function IncidentExplorer() {
                   </th>
                   <th className="text-left py-2 font-medium">Type</th>
                   <th className="text-left py-2 font-medium">Track ID</th>
+                  <th className="text-left py-2 font-medium">Vehicle Plate</th>
                   <th className="text-left py-2 font-medium">Timestamp</th>
                   <th className="text-left py-2 font-medium">Confidence</th>
                   <th className="text-left py-2 font-medium">Status</th>
@@ -393,6 +396,15 @@ export default function IncidentExplorer() {
                       </td>
                       <td className="py-2.5 font-mono text-xs text-yellow-400">
                         {inc.track_id !== null ? `#${inc.track_id}` : '—'}
+                      </td>
+                      <td className="py-2.5">
+                        {inc.vehicle_number ? (
+                          <span className="font-mono text-xs bg-yellow-950/80 border border-yellow-700/70 text-yellow-300 px-2 py-0.5 rounded font-bold tracking-wider inline-flex items-center gap-1.5 shadow-sm">
+                            <span>🇮🇳</span> {inc.vehicle_number}
+                          </span>
+                        ) : (
+                          <span className="text-gray-500 text-xs">—</span>
+                        )}
                       </td>
                       <td className="py-2.5 text-gray-400 text-xs">
                         {format(new Date(inc.event_timestamp), 'MMM d, HH:mm:ss')}
@@ -460,9 +472,23 @@ export default function IncidentExplorer() {
                 <div className="text-xs text-gray-500 font-mono mt-0.5 break-all">{selected.id}</div>
               </div>
 
+              {selected.vehicle_number && (
+                <div className="bg-yellow-950/30 border border-yellow-700/60 rounded-xl p-3 text-center shadow-inner">
+                  <div className="text-[10px] text-yellow-400 font-semibold uppercase tracking-wider flex items-center justify-center gap-1">
+                    <span>🇮🇳</span> Detected Indian Registration Plate
+                  </div>
+                  <div className="text-lg font-mono font-black text-yellow-300 tracking-widest mt-1 bg-gray-950/70 border border-yellow-800/80 rounded-lg py-1 px-3 inline-block shadow">
+                    {selected.vehicle_number}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2 text-sm border-t border-gray-800 pt-2">
                 <Row label="Violation" value={selected.violation_type.replace('_', ' ')} />
                 <Row label="Outcome" value={selected.outcome.replace('_', ' ')} />
+                {selected.vehicle_number && (
+                  <Row label="Vehicle Plate" value={selected.vehicle_number} />
+                )}
                 <Row label="Timestamp" value={format(new Date(selected.event_timestamp), 'PPpp')} />
                 <Row label="Camera Source" value={selected.camera_source} />
                 <Row label="Track ID" value={selected.track_id?.toString() ?? 'N/A'} />

@@ -36,6 +36,7 @@ interface RecentIncident {
   confidence: number
   review_status: string
   outcome: string
+  vehicle_number?: string | null
 }
 
 interface AnalyticsData {
@@ -301,6 +302,11 @@ export default function Overview() {
                 >
                   <div className="flex items-center gap-2">
                     {violationBadge(inc.violation_type)}
+                    {inc.vehicle_number && (
+                      <span className="font-mono text-[11px] bg-yellow-950/80 border border-yellow-700/70 text-yellow-300 px-1.5 py-0.5 rounded font-bold tracking-wider inline-flex items-center gap-1 shadow-sm">
+                        <span>🇮🇳</span> {inc.vehicle_number}
+                      </span>
+                    )}
                     <span className="text-gray-400 text-xs">
                       {formatDistanceToNow(new Date(inc.event_timestamp), { addSuffix: true })}
                     </span>

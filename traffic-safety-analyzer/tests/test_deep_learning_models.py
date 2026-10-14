@@ -15,6 +15,12 @@ from httpx import AsyncClient, ASGITransport
 
 from backend.main import app
 from backend.models.helmet_classifier import DeepHelmetCNN, DeepHelmetClassifier
+from backend.models.plate_recognizer import (
+    DeepPlateOCRNet,
+    IndianPlateValidator,
+    IndianNumberPlateDetector,
+    TemporalPlateStabilizer,
+)
 from backend.models.reid_extractor import DeepReIDNet, DeepReIDExtractor
 from backend.models.violation_classifier import ViolationMLP, DeepViolationRiskClassifier
 from backend.models.registry import get_model_registry
@@ -179,6 +185,7 @@ def test_model_registry_specs():
     assert "helmet_classifier" in specs["models"]
     assert "reid_extractor" in specs["models"]
     assert "violation_classifier" in specs["models"]
+    assert "plate_recognizer" in specs["models"]
     assert specs["total_deep_parameters"] > 3_000_000
 
 
@@ -193,6 +200,7 @@ async def test_models_info_api_endpoint():
         assert data["models"]["helmet_classifier"]["parameters"] > 0
         assert data["models"]["reid_extractor"]["parameters"] > 0
         assert data["models"]["violation_classifier"]["parameters"] > 0
+        assert data["models"]["plate_recognizer"]["parameters"] > 0
 
 
 @pytest.mark.asyncio
@@ -206,5 +214,69 @@ async def test_models_benchmark_api_endpoint():
         assert "helmet_cnn_inference" in data["results"]
         assert "reid_embedding_extraction" in data["results"]
         assert "violation_mlp_risk" in data["results"]
+        assert "anpr_plate_recognition" in data["results"]
         assert data["results"]["helmet_cnn_inference"]["mean_ms"] > 0.0
+        assert data["results"]["anpr_plate_recognition"]["mean_ms"] > 0.0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Indian ANPR / ALPR Tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_deep_plate_ocr_net_architecture():
+    model = DeepPlateOCRNet(num_chars=36, sequence_length=10)
+    model.eval()
+    dummy = torch.randn(2, 1, 32, 96)
+    with torch.no_grad():
+        out = model(dummy)
+    assert out.shape == (2, 10, 36)
+
+
+def test_indian_plate_validator():
+    # Canonical format check
+    clean = IndianPlateValidator.clean_text("od-05-b-4821")
+    assert clean == "OD05B4821"
+
+    formatted, is_valid, state, conf = IndianPlateValidator.format_plate("OD05B4821")
+    assert is_valid is True
+    assert state == "OD"
+    assert formatted == "OD 05 B 4821"
+
+    # OCR character substitution correction (e.g. '0' for 'O' at start)
+    formatted2, is_valid2, state2, _ = IndianPlateValidator.format_plate("0D05B4821")
+    assert state2 == "OD"
+    assert formatted2.startswith("OD 05")
+
+
+def test_indian_number_plate_detector_and_stabilizer():
+    detector = IndianNumberPlateDetector()
+    assert detector.parameter_count > 50_000
+
+    dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    vehicle_bbox = (100, 100, 300, 350)
+    result = detector.recognize_plate(dummy_frame, vehicle_bbox, track_id=42)
+
+    assert result.plate_number is not None
+    assert len(result.plate_number) >= 10
+    assert result.state_code in ["OD", "DL", "MH", "KA", "TS", "UP", "HR"]
+    assert 0.0 <= result.confidence <= 1.0
+
+    # Stabilizer voting test
+    stabilizer = TemporalPlateStabilizer(min_votes=2)
+    stabilizer.reset()
+    plate1 = stabilizer.update(42, result)
+    plate2 = stabilizer.update(42, result)
+    assert plate1 == plate2
+    assert stabilizer.get_plate(42) == plate1
+
+
+@pytest.mark.asyncio
+async def test_incident_with_vehicle_number_persistence():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/incidents/", params={"vehicle_number": "OD"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "items" in data
+        assert "total" in data
 

@@ -18,6 +18,7 @@ from loguru import logger
 
 from backend.detection.detector import get_detector, load_detector, YOLODetector
 from backend.models.helmet_classifier import DeepHelmetClassifier
+from backend.models.plate_recognizer import IndianNumberPlateDetector, get_plate_detector
 from backend.models.reid_extractor import DeepReIDExtractor
 from backend.models.violation_classifier import DeepViolationRiskClassifier
 
@@ -44,6 +45,9 @@ class ModelRegistry:
 
         # 4. Spatio-Temporal Risk Classifier
         self.violation_classifier = DeepViolationRiskClassifier()
+
+        # 5. Indian ANPR / ALPR Plate Recognizer
+        self.plate_detector = get_plate_detector()
 
     @classmethod
     def get_instance(cls) -> ModelRegistry:
@@ -79,12 +83,14 @@ class ModelRegistry:
                 "helmet_classifier": self.helmet_classifier.get_info(),
                 "reid_extractor": self.reid_extractor.get_info(),
                 "violation_classifier": self.violation_classifier.get_info(),
+                "plate_recognizer": self.plate_detector.get_info(),
             },
             "total_deep_parameters": (
                 yolo_params
                 + self.helmet_classifier.parameter_count
                 + self.reid_extractor.parameter_count
                 + self.violation_classifier.parameter_count
+                + self.plate_detector.parameter_count
             ),
         }
 
@@ -123,7 +129,16 @@ class ModelRegistry:
             self.violation_classifier.evaluate_risk(dummy_features)
             risk_times.append((time.perf_counter() - t0) * 1000.0)
 
-        # 4. Benchmark YOLOv8 (5 iterations due to full frame size)
+        # 4. Benchmark ANPR Plate Recognizer
+        dummy_anpr_frame = np.random.randint(0, 255, (240, 320, 3), dtype=np.uint8)
+        self.plate_detector.recognize_plate(dummy_anpr_frame, (20, 40, 180, 220), track_id=1)
+        plate_times = []
+        for _ in range(iterations):
+            t0 = time.perf_counter()
+            self.plate_detector.recognize_plate(dummy_anpr_frame, (20, 40, 180, 220), track_id=1)
+            plate_times.append((time.perf_counter() - t0) * 1000.0)
+
+        # 5. Benchmark YOLOv8 (5 iterations due to full frame size)
         yolo_times = []
         if self.detector and self.detector.is_loaded:
             dummy_frame = np.zeros((640, 640, 3), dtype=np.uint8)
@@ -154,6 +169,7 @@ class ModelRegistry:
                 "helmet_cnn_inference": _stats(helmet_times),
                 "reid_embedding_extraction": _stats(reid_times),
                 "violation_mlp_risk": _stats(risk_times),
+                "anpr_plate_recognition": _stats(plate_times),
             },
             "timestamp": time.time(),
         }
