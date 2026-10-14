@@ -49,7 +49,6 @@ _running_eval: bool = False
 async def run_evaluation_endpoint(
     body: EvalRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
 ) -> dict:
     global _running_eval
     if _running_eval:
@@ -70,12 +69,12 @@ async def run_evaluation_endpoint(
         notes=body.notes,
     )
 
-    background_tasks.add_task(_eval_task, config, db)
+    background_tasks.add_task(_eval_task, config)
     _running_eval = True
     return {"message": "Evaluation started in background.", "status": "running"}
 
 
-async def _eval_task(config: EvaluationConfig, _db: AsyncSession) -> None:
+async def _eval_task(config: EvaluationConfig) -> None:
     global _running_eval
     try:
         detector = get_detector()
@@ -132,6 +131,33 @@ async def list_results(db: AsyncSession = Depends(get_db)) -> Any:
         )
         for r in rows
     ]
+
+
+@router.get("/results/{result_id}", response_model=EvalResultOut)
+async def get_result(result_id: str, db: AsyncSession = Depends(get_db)) -> Any:
+    row = await db.get(ExperimentResult, result_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Experiment result not found.")
+    return EvalResultOut(
+        id=row.id,
+        experiment_name=row.experiment_name,
+        model_name=row.model_name,
+        dataset_name=row.dataset_name,
+        run_timestamp=row.run_timestamp.isoformat() if row.run_timestamp else "",
+        metrics=row.metrics,
+        config=row.config,
+        notes=row.notes,
+    )
+
+
+@router.delete("/results/{result_id}")
+async def delete_result(result_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    row = await db.get(ExperimentResult, result_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Experiment result not found.")
+    await db.delete(row)
+    await db.commit()
+    return {"message": "Experiment result deleted.", "id": result_id}
 
 
 @router.get("/datasets")

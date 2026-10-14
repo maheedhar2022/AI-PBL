@@ -208,3 +208,54 @@ async def test_camera_upload_invalid_and_valid():
         assert data["filename"] == "sample.mp4"
         assert "uploads/sample.mp4" in data["source"]
 
+
+@pytest.mark.anyio
+async def test_evaluation_endpoints():
+    from backend.database.db import AsyncSessionLocal
+    from backend.database.models import ExperimentResult
+    import uuid
+
+    exp_id = str(uuid.uuid4())
+    async with AsyncSessionLocal() as session:
+        exp = ExperimentResult(
+            id=exp_id,
+            experiment_name="test_experiment",
+            model_name="yolov8n.pt",
+            dataset_name="test_dataset",
+            metrics={"precision": 0.85, "recall": 0.82, "f1": 0.83},
+            config={"iou_threshold": 0.5},
+            notes="Unit test experiment",
+        )
+        session.add(exp)
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Status
+        status_resp = await client.get("/api/v1/evaluation/status")
+        assert status_resp.status_code == 200
+        assert "running" in status_resp.json()
+
+        # Datasets
+        datasets_resp = await client.get("/api/v1/evaluation/datasets")
+        assert datasets_resp.status_code == 200
+        assert "datasets" in datasets_resp.json()
+
+        # List results
+        list_resp = await client.get("/api/v1/evaluation/results")
+        assert list_resp.status_code == 200
+        assert any(r["id"] == exp_id for r in list_resp.json())
+
+        # Get single result
+        get_resp = await client.get(f"/api/v1/evaluation/results/{exp_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["experiment_name"] == "test_experiment"
+
+        # Delete result
+        del_resp = await client.delete(f"/api/v1/evaluation/results/{exp_id}")
+        assert del_resp.status_code == 200
+
+        # Verify 404
+        get_del = await client.get(f"/api/v1/evaluation/results/{exp_id}")
+        assert get_del.status_code == 404
+
+

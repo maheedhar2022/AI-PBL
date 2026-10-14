@@ -91,6 +91,8 @@ export const runEvaluation = (body: {
 }) => api.post('/evaluation/run', body).then(r => r.data)
 export const getEvalStatus = () => api.get('/evaluation/status').then(r => r.data)
 export const listEvalResults = () => api.get('/evaluation/results').then(r => r.data)
+export const getEvalResult = (id: string) => api.get(`/evaluation/results/${id}`).then(r => r.data)
+export const deleteEvalResult = (id: string) => api.delete(`/evaluation/results/${id}`).then(r => r.data)
 export const listDatasets = () => api.get('/evaluation/datasets').then(r => r.data)
 
 // Settings

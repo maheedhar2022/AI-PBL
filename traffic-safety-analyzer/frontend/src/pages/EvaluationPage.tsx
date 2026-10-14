@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  BarChart2, RefreshCw, Play, CheckCircle, AlertCircle, Loader
+  BarChart2, RefreshCw, Play, CheckCircle, AlertCircle, Loader, Trash2
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
-import { runEvaluation, listEvalResults, listDatasets, getEvalStatus } from '../services/api'
+import { runEvaluation, listEvalResults, listDatasets, getEvalStatus, deleteEvalResult } from '../services/api'
 
 interface EvalResult {
   id: string
@@ -85,6 +85,14 @@ export default function EvaluationPage() {
       const err = e as { response?: { data?: { detail?: string } } }
       setMessage(err?.response?.data?.detail ?? 'Failed to start evaluation.')
     }
+  }
+
+  const handleDeleteResult = async (id: string) => {
+    if (!confirm('Delete this evaluation record?')) return
+    try {
+      await deleteEvalResult(id)
+      setResults(prev => prev.filter(r => r.id !== id))
+    } catch { /* ignore */ }
   }
 
   const latest = results[0]
@@ -246,11 +254,12 @@ export default function EvaluationPage() {
                 <th className="text-right py-2">mAP50</th>
                 <th className="text-right py-2">FPS</th>
                 <th className="text-left py-2">Status</th>
+                <th className="py-2 w-8"></th>
               </tr>
             </thead>
             <tbody>
               {results.map(r => (
-                <tr key={r.id} className="border-b border-gray-800">
+                <tr key={r.id} className="border-b border-gray-800 hover:bg-gray-800/40 transition-colors">
                   <td className="py-2 text-gray-300 text-xs truncate max-w-[120px]">{r.experiment_name}</td>
                   <td className="py-2 text-gray-400 text-xs">{r.model_name}</td>
                   <td className="py-2 text-gray-400 text-xs">{r.dataset_name}</td>
@@ -274,6 +283,15 @@ export default function EvaluationPage() {
                       ? <span className="text-red-400 flex items-center gap-1"><AlertCircle className="w-3 h-3" />Error</span>
                       : <span className="text-green-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Done</span>
                     }
+                  </td>
+                  <td className="py-2 text-right">
+                    <button
+                      onClick={() => handleDeleteResult(r.id)}
+                      className="text-gray-600 hover:text-red-400 p-1 transition-colors"
+                      title="Delete result"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </td>
                 </tr>
               ))}

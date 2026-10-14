@@ -34,6 +34,23 @@ async def _upsert_setting(db: AsyncSession, key: str, value: str) -> None:
         db.add(AppSettings(key=key, value=value))
 
 
+async def apply_saved_settings(db: AsyncSession) -> None:
+    rows = (await db.execute(select(AppSettings))).scalars().all()
+    overrides = {r.key: r.value for r in rows}
+    if "confidence_threshold" in overrides:
+        settings.confidence_threshold = float(overrides["confidence_threshold"])
+    if "iou_threshold" in overrides:
+        settings.iou_threshold = float(overrides["iou_threshold"])
+    if "camera_fps_target" in overrides:
+        settings.camera_fps_target = int(overrides["camera_fps_target"])
+    if "helmet_frames_required" in overrides:
+        settings.helmet_frames_required = int(overrides["helmet_frames_required"])
+    if "triple_frames_required" in overrides:
+        settings.triple_frames_required = int(overrides["triple_frames_required"])
+    if "dedup_seconds" in overrides:
+        settings.dedup_seconds = int(overrides["dedup_seconds"])
+
+
 @router.get("/")
 async def get_settings(db: AsyncSession = Depends(get_db)) -> dict:
     # Check for DB overrides

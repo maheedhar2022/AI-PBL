@@ -37,6 +37,13 @@ async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     await init_db()
     logger.info(f"Database ready: {settings.database_url}")
+    try:
+        from backend.api.settings_routes import apply_saved_settings
+        from backend.database.db import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            await apply_saved_settings(session)
+    except Exception as exc:
+        logger.warning(f"Failed to load persisted settings on startup: {exc}")
     load_detector()
     yield
     # Shutdown
