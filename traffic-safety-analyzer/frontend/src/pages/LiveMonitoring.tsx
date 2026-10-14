@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Play, Square, Camera, Video, AlertTriangle, Car, Bike, Bus, Truck, Users, Activity,
   Upload, Film, Image as ImageIcon, Trash2, Download, X, Clock, Disc,
-  Maximize2, Minimize2, Volume2, VolumeX, Cpu, Layers, Zap, ShieldCheck
+  Maximize2, Minimize2, Volume2, VolumeX, Cpu, Layers, Zap, ShieldCheck, Eye
 } from 'lucide-react'
 import {
   startMonitoring, stopMonitoring, getMonitoringStatus, getLatestFrame, configureCamera,
@@ -93,6 +93,8 @@ export default function LiveMonitoring() {
   const [libraryTab, setLibraryTab] = useState<'recordings' | 'snapshots'>('recordings')
   const [recordings, setRecordings] = useState<RecordingItem[]>([])
   const [snapshots, setSnapshots] = useState<SnapshotItem[]>([])
+  const [selectedSnapshot, setSelectedSnapshot] = useState<SnapshotItem | null>(null)
+  const [previewRecording, setPreviewRecording] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -208,6 +210,7 @@ export default function LiveMonitoring() {
       }
       await startMonitoring()
       setRunning(true)
+      showToastMsg('AI Traffic Safety Monitoring started.')
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       setError(err?.response?.data?.detail ?? 'Failed to start monitoring.')
@@ -236,7 +239,9 @@ export default function LiveMonitoring() {
   const handleServerSnapshot = async () => {
     try {
       const res = await takeSnapshot()
-      showToastMsg(`Snapshot saved to server: ${res.snapshot?.filename}`)
+      const filename = res.snapshot?.filename || 'snapshot.jpg'
+      const resText = res.snapshot?.resolution ? ` (${res.snapshot.resolution})` : ''
+      showToastMsg(`Snapshot saved: ${filename}${resText}`)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       setError(err?.response?.data?.detail ?? 'Failed to save snapshot.')
@@ -275,7 +280,11 @@ export default function LiveMonitoring() {
     try {
       const res = await uploadVideoFile(file)
       setCameraSource(res.source)
-      showToastMsg(`Uploaded ${res.filename}. Selected as camera source.`)
+      if (running) {
+        showToastMsg(`Uploaded ${res.filename} — live AI analysis hot-swapped to new video!`)
+      } else {
+        showToastMsg(`Uploaded ${res.filename}. Selected as source — click 'Start Feed'.`)
+      }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } } }
       setError(e?.response?.data?.detail ?? 'Failed to upload video.')
@@ -390,18 +399,29 @@ export default function LiveMonitoring() {
         {PRESETS.map((p) => (
           <button
             key={p.path}
-            onClick={() => {
-              if (!running) setCameraSource(p.path)
+            onClick={async () => {
+              setCameraSource(p.path)
+              if (running) {
+                try {
+                  await configureCamera(p.path)
+                  showToastMsg(`Switched live feed to ${p.name}`)
+                } catch (e: unknown) {
+                  const err = e as { response?: { data?: { detail?: string } } }
+                  setError(err?.response?.data?.detail ?? 'Failed to switch feed.')
+                }
+              }
             }}
-            disabled={running}
-            className={`px-3 py-1.5 rounded-lg border transition-colors ${
+            className={`px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${
               cameraSource === p.path
-                ? 'bg-blue-600/30 border-blue-500 text-blue-200'
+                ? 'bg-blue-600/30 border-blue-500 text-blue-200 font-semibold'
                 : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-750'
-            } disabled:opacity-50`}
+            }`}
             title={p.desc}
           >
-            {p.name}
+            <span>{p.name}</span>
+            {cameraSource === p.path && running && (
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block animate-pulse" />
+            )}
           </button>
         ))}
       </div>
@@ -740,32 +760,52 @@ export default function LiveMonitoring() {
                 ) : (
                   <div className="divide-y divide-gray-800">
                     {recordings.map((rec) => (
-                      <div key={rec.filename} className="py-2.5 flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2.5">
-                          <Film className="w-4 h-4 text-purple-400 shrink-0" />
-                          <div>
-                            <div className="text-gray-200 font-medium">{rec.filename}</div>
-                            <div className="text-gray-500 text-[11px]">
-                              {rec.size_kb} KB • {new Date(rec.created_at).toLocaleString()}
+                      <div key={rec.filename} className="py-3 text-xs space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <Film className="w-4 h-4 text-purple-400 shrink-0" />
+                            <div>
+                              <div className="text-gray-200 font-medium font-mono">{rec.filename}</div>
+                              <div className="text-gray-500 text-[11px]">
+                                {rec.size_kb} KB • {new Date(rec.created_at).toLocaleString()}
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setPreviewRecording(p => p === rec.filename ? null : rec.filename)}
+                              className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1"
+                            >
+                              <Play className="w-3 h-3 text-purple-400" />
+                              {previewRecording === rec.filename ? 'Hide' : 'Watch'}
+                            </button>
+                            <a
+                              href={`/api/v1/monitoring/recordings/${rec.filename}`}
+                              download
+                              className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1"
+                            >
+                              <Download className="w-3 h-3 text-green-400" /> Download
+                            </a>
+                            <button
+                              onClick={() => handleDeleteRecording(rec.filename)}
+                              className="text-gray-600 hover:text-red-400 p-1"
+                              title="Delete clip"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <a
-                            href={`/api/v1/monitoring/recordings/${rec.filename}`}
-                            download
-                            className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1"
-                          >
-                            <Download className="w-3 h-3 text-green-400" /> Download
-                          </a>
-                          <button
-                            onClick={() => handleDeleteRecording(rec.filename)}
-                            className="text-gray-600 hover:text-red-400 p-1"
-                            title="Delete clip"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+
+                        {previewRecording === rec.filename && (
+                          <div className="rounded-xl overflow-hidden border border-purple-800/40 bg-black mt-2 p-1">
+                            <video
+                              src={`/api/v1/monitoring/recordings/${rec.filename}`}
+                              controls
+                              autoPlay
+                              className="w-full max-h-72 object-contain mx-auto rounded-lg"
+                            />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -778,18 +818,29 @@ export default function LiveMonitoring() {
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {snapshots.map((snap) => (
-                    <div key={snap.filename} className="bg-gray-800/60 border border-gray-700/60 rounded-xl overflow-hidden shadow-sm flex flex-col">
-                      <img
-                        src={`/evidence/snapshots/${snap.filename}`}
-                        alt={snap.filename}
-                        className="w-full aspect-video object-cover bg-black"
-                      />
+                    <div key={snap.filename} className="bg-gray-800/60 border border-gray-700/60 rounded-xl overflow-hidden shadow-sm flex flex-col group">
+                      <div
+                        className="relative cursor-pointer overflow-hidden aspect-video bg-black"
+                        onClick={() => setSelectedSnapshot(snap)}
+                      >
+                        <img
+                          src={`/api/v1/monitoring/snapshots/${snap.filename}`}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = `/evidence/snapshots/${snap.filename}`
+                          }}
+                          alt={snap.filename}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <Eye className="w-5 h-5 text-white" />
+                        </div>
+                      </div>
                       <div className="p-2 text-[11px] flex-1 flex flex-col justify-between space-y-1">
                         <div className="text-gray-300 font-mono truncate">{snap.filename}</div>
                         <div className="text-gray-500">{snap.size_kb} KB</div>
                         <div className="flex items-center justify-between pt-1 border-t border-gray-700/40">
                           <a
-                            href={`/evidence/snapshots/${snap.filename}`}
+                            href={`/api/v1/monitoring/snapshots/${snap.filename}`}
                             download
                             className="text-green-400 hover:underline flex items-center gap-1"
                           >
@@ -807,6 +858,43 @@ export default function LiveMonitoring() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Lightbox / Full-Screen Zoom Modal */}
+      {selectedSnapshot && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-950">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-cyan-400" />
+                <span className="text-sm font-semibold text-white font-mono">{selectedSnapshot.filename}</span>
+                <span className="text-xs text-gray-500">({selectedSnapshot.size_kb} KB)</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href={`/api/v1/monitoring/snapshots/${selectedSnapshot.filename}`}
+                  download
+                  className="btn-secondary text-xs py-1 px-3 flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5 text-green-400" /> Download Image
+                </a>
+                <button
+                  onClick={() => setSelectedSnapshot(null)}
+                  className="text-gray-400 hover:text-white p-1 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 flex-1 flex items-center justify-center overflow-auto bg-black/50">
+              <img
+                src={`/api/v1/monitoring/snapshots/${selectedSnapshot.filename}`}
+                alt={selectedSnapshot.filename}
+                className="max-h-[75vh] w-auto max-w-full object-contain rounded-lg shadow-lg"
+              />
             </div>
           </div>
         </div>

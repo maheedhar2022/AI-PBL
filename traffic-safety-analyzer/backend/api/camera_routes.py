@@ -53,19 +53,24 @@ async def get_camera_status() -> Any:
 
 @router.post("/configure")
 async def configure_camera(body: CameraConfigRequest) -> dict:
+    from backend.pipeline import get_pipeline
     loop = asyncio.get_event_loop()
     cam = get_camera()
-    if cam and cam.status.running:
-        raise HTTPException(
-            status_code=409,
-            detail="Stop monitoring before changing camera source.",
-        )
-    create_camera(source=body.source, loop=loop)
+    if cam is not None:
+        cam.change_source(body.source)
+    else:
+        create_camera(source=body.source, loop=loop)
+
+    pipeline = get_pipeline()
+    if pipeline:
+        pipeline.reset_trackers()
+
     return {"message": "Camera configured.", "source": body.source}
 
 
 @router.post("/upload")
 async def upload_video(file: UploadFile = File(...)) -> dict:
+    from backend.pipeline import get_pipeline
     valid_exts = {".mp4", ".webm", ".avi", ".mov", ".mkv"}
     ext = Path(file.filename or "").suffix.lower()
     if ext not in valid_exts:
@@ -83,7 +88,15 @@ async def upload_video(file: UploadFile = File(...)) -> dict:
         shutil.copyfileobj(file.file, buffer)
 
     loop = asyncio.get_event_loop()
-    create_camera(source=str(target_path), loop=loop)
+    cam = get_camera()
+    if cam is not None:
+        cam.change_source(str(target_path))
+    else:
+        create_camera(source=str(target_path), loop=loop)
+
+    pipeline = get_pipeline()
+    if pipeline:
+        pipeline.reset_trackers()
 
     return {
         "message": "Video uploaded and camera configured.",

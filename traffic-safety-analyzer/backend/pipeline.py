@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -114,29 +114,47 @@ class VideoRecorder:
         self._frame_count: int = 0
         self._start_time: float = 0.0
         self._is_recording: bool = False
+        self._expected_w: Optional[int] = None
+        self._expected_h: Optional[int] = None
 
     @property
     def is_recording(self) -> bool:
         return self._is_recording
 
-    def start(self, frame_shape: Tuple[int, int]) -> str:
+    def start(self, frame_shape: Optional[Tuple[int, int]] = None) -> str:
         if self._is_recording:
             return self._filename or ""
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        h, w = frame_shape[:2]
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self._filename = f"cctv_recording_{ts}.mp4"
         self._filepath = self.output_dir / self._filename
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self._writer = cv2.VideoWriter(str(self._filepath), fourcc, float(self.fps), (w, h))
         self._frame_count = 0
         self._start_time = time.monotonic()
         self._is_recording = True
+        self._writer = None
+        self._expected_w = None
+        self._expected_h = None
+        if frame_shape is not None:
+            h, w = frame_shape[:2]
+            self._expected_w = w
+            self._expected_h = h
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            self._writer = cv2.VideoWriter(str(self._filepath), fourcc, float(self.fps), (w, h))
         logger.info(f"Started video recording: {self._filepath}")
         return self._filename
 
     def write_frame(self, frame: np.ndarray) -> None:
-        if self._is_recording and self._writer is not None:
+        if not self._is_recording:
+            return
+        h, w = frame.shape[:2]
+        if self._writer is None:
+            self._expected_w = w
+            self._expected_h = h
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            self._writer = cv2.VideoWriter(str(self._filepath), fourcc, float(self.fps), (w, h))
+        if self._writer is not None:
+            if w != self._expected_w or h != self._expected_h:
+                frame = cv2.resize(frame, (self._expected_w, self._expected_h))
             self._writer.write(frame)
             self._frame_count += 1
 
@@ -227,25 +245,47 @@ class ViolationPipeline:
         self._triple_analyzer.reset()
         logger.info("ViolationPipeline stopped.")
 
-    def start_recording(self, frame_shape: Tuple[int, int] = (720, 1280)) -> str:
+    def reset_trackers(self) -> None:
+        """Reset tracking state and analyzers on camera or video source switch."""
+        self._vehicle_tracker.reset()
+        self._person_tracker.reset()
+        self._helmet_analyzer.reset()
+        self._triple_analyzer.reset()
+        self._latest_annotated_frame = None
+        self._latest_frame_b64 = None
+        logger.info("ViolationPipeline trackers and frame buffers reset.")
+
+    def start_recording(self, frame_shape: Optional[Tuple[int, int]] = None) -> str:
+        if frame_shape is None and self._latest_annotated_frame is not None:
+            frame_shape = self._latest_annotated_frame.shape[:2]
         return self._recorder.start(frame_shape)
 
     def stop_recording(self) -> Optional[dict]:
         return self._recorder.stop()
 
     def save_snapshot(self) -> Optional[dict]:
-        if self._latest_annotated_frame is None:
+        frame_to_save = self._latest_annotated_frame
+        if frame_to_save is None and self._latest_frame_b64 is not None:
+            try:
+                jpg_bytes = base64.b64decode(self._latest_frame_b64)
+                np_arr = np.frombuffer(jpg_bytes, dtype=np.uint8)
+                frame_to_save = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            except Exception:
+                pass
+        if frame_to_save is None:
             return None
         snapshot_dir = settings.evidence_dir / "snapshots"
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"snapshot_{ts}.jpg"
         filepath = snapshot_dir / filename
-        cv2.imwrite(str(filepath), self._latest_annotated_frame)
+        cv2.imwrite(str(filepath), frame_to_save, [cv2.IMWRITE_JPEG_QUALITY, 95])
         stat = filepath.stat()
+        h, w = frame_to_save.shape[:2]
         return {
             "filename": filename,
             "path": str(filepath),
+            "resolution": f"{w}x{h}",
             "size_kb": round(stat.st_size / 1024, 1),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }

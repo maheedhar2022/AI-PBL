@@ -46,7 +46,16 @@ export default function EvaluationPage() {
     try {
       const [r, d] = await Promise.all([listEvalResults(), listDatasets()])
       setResults(r)
-      setDatasets(d.datasets || [])
+      const ds = d.datasets || []
+      setDatasets(ds)
+      if (ds.length > 0) {
+        setForm(f => f.dataset_path ? f : {
+          ...f,
+          dataset_path: ds[0].path,
+          dataset_name: ds[0].name,
+          experiment_name: `eval_${ds[0].name}`,
+        })
+      }
     } catch {}
   }, [])
 
@@ -280,8 +289,19 @@ export default function EvaluationPage() {
                   </td>
                   <td className="py-2 text-xs">
                     {r.metrics.status === 'error'
-                      ? <span className="text-red-400 flex items-center gap-1"><AlertCircle className="w-3 h-3" />Error</span>
-                      : <span className="text-green-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Done</span>
+                      ? (
+                        <span
+                          className="text-red-400 flex items-center gap-1 cursor-help"
+                          title={r.metrics.error_message || 'Evaluation error'}
+                        >
+                          <AlertCircle className="w-3 h-3" />
+                          <span className="truncate max-w-[120px]">{r.metrics.error_message || 'Error'}</span>
+                        </span>
+                      ) : (
+                        <span className="text-green-400 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />Done
+                        </span>
+                      )
                     }
                   </td>
                   <td className="py-2 text-right">

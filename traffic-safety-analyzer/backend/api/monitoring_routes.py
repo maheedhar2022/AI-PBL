@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import cv2
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
@@ -156,12 +157,41 @@ async def delete_recording(filename: str) -> dict:
 @router.post("/snapshot")
 async def take_snapshot() -> dict:
     pipeline = get_pipeline()
+    if pipeline and pipeline._running:
+        info = pipeline.save_snapshot()
+        if info:
+            return {"message": "Snapshot captured.", "snapshot": info}
+
+    cam = get_camera()
+    if cam and cam.status.running:
+        try:
+            if cam._cap:
+                ret, frame = cam._cap.read()
+                if ret and frame is not None:
+                    snapshot_dir = settings.evidence_dir / "snapshots"
+                    snapshot_dir.mkdir(parents=True, exist_ok=True)
+                    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                    filename = f"snapshot_{ts}.jpg"
+                    filepath = snapshot_dir / filename
+                    cv2.imwrite(str(filepath), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    stat = filepath.stat()
+                    h, w = frame.shape[:2]
+                    return {
+                        "message": "Snapshot captured from camera.",
+                        "snapshot": {
+                            "filename": filename,
+                            "path": str(filepath),
+                            "resolution": f"{w}x{h}",
+                            "size_kb": round(stat.st_size / 1024, 1),
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    }
+        except Exception:
+            pass
+
     if pipeline is None or not pipeline._running:
         raise HTTPException(status_code=400, detail="Start monitoring before taking snapshot.")
-    info = pipeline.save_snapshot()
-    if info is None:
-        raise HTTPException(status_code=503, detail="No frame available to snapshot.")
-    return {"message": "Snapshot captured.", "snapshot": info}
+    raise HTTPException(status_code=503, detail="No frame available to snapshot yet. Please wait a moment.")
 
 
 @router.get("/snapshots")

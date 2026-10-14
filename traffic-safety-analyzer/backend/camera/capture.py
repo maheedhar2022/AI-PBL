@@ -124,13 +124,29 @@ class CameraCapture:
             self._cap = None
         logger.info("Camera stopped.")
 
+    def _drain_queue(self) -> None:
+        """Discard any unread frames from previous video source."""
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except (asyncio.QueueEmpty, ValueError):
+                break
+
     def change_source(self, source: int | str) -> None:
         """Hot-swap the camera source."""
         was_running = self._status.running
         if was_running:
             self.stop()
-        self._source = source
-        self._status.source = str(source)
+
+        try:
+            parsed = int(str(source).strip())
+        except (ValueError, TypeError):
+            parsed = source
+
+        self._source = parsed
+        self._status.source = str(parsed)
+        self._drain_queue()
+
         if was_running:
             self.start()
 

@@ -178,14 +178,65 @@ async def test_incidents_batch_review_and_bulk_delete():
 
 @pytest.mark.anyio
 async def test_monitoring_recordings_and_snapshots():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        rec_resp = await client.get("/api/v1/monitoring/recordings")
-        assert rec_resp.status_code == 200
-        assert "recordings" in rec_resp.json()
+    import asyncio
+    from backend.pipeline import create_pipeline, get_pipeline
+    from backend.detection.detector import load_detector
+    import numpy as np
 
+    det = load_detector()
+    q = asyncio.Queue()
+    pipe = create_pipeline(detector=det, frame_queue=q)
+    # Simulate a processed frame
+    pipe._latest_annotated_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    pipe._running = True
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Snapshot capture
+        snap_post = await client.post("/api/v1/monitoring/snapshot")
+        assert snap_post.status_code == 200
+        snap_data = snap_post.json()
+        assert "snapshot" in snap_data
+        snap_filename = snap_data["snapshot"]["filename"]
+
+        # List snapshots
         snap_resp = await client.get("/api/v1/monitoring/snapshots")
         assert snap_resp.status_code == 200
-        assert "snapshots" in snap_resp.json()
+        assert any(s["filename"] == snap_filename for s in snap_resp.json()["snapshots"])
+
+        # Get snapshot file
+        snap_file_resp = await client.get(f"/api/v1/monitoring/snapshots/{snap_filename}")
+        assert snap_file_resp.status_code == 200
+
+        # Start recording
+        rec_start = await client.post("/api/v1/monitoring/record/start")
+        assert rec_start.status_code == 200
+        rec_filename = rec_start.json()["filename"]
+
+        # Write frame to recorder
+        pipe._recorder.write_frame(np.zeros((480, 640, 3), dtype=np.uint8))
+
+        # Stop recording
+        rec_stop = await client.post("/api/v1/monitoring/record/stop")
+        assert rec_stop.status_code == 200
+
+        # List recordings
+        rec_resp = await client.get("/api/v1/monitoring/recordings")
+        assert rec_resp.status_code == 200
+        assert any(r["filename"] == rec_filename for r in rec_resp.json()["recordings"])
+
+        # Get recording file
+        rec_file_resp = await client.get(f"/api/v1/monitoring/recordings/{rec_filename}")
+        assert rec_file_resp.status_code == 200
+
+        # Delete recording
+        del_rec = await client.delete(f"/api/v1/monitoring/recordings/{rec_filename}")
+        assert del_rec.status_code == 200
+
+        # Delete snapshot
+        del_snap = await client.delete(f"/api/v1/monitoring/snapshots/{snap_filename}")
+        assert del_snap.status_code == 200
+
+        pipe._running = False
 
 
 @pytest.mark.anyio

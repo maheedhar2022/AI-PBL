@@ -76,13 +76,24 @@ async def run_evaluation_endpoint(
 
 async def _eval_task(config: EvaluationConfig) -> None:
     global _running_eval
-    try:
-        detector = get_detector()
-        metrics = await run_evaluation(config, detector=detector)
+    from dataclasses import asdict
+    from backend.database.models import ExperimentResult
+    from backend.database.db import AsyncSessionLocal
+    from loguru import logger
+    import traceback
 
-        from dataclasses import asdict
-        from backend.database.models import ExperimentResult
-        from backend.database.db import AsyncSessionLocal
+    try:
+        # Check path resolution
+        p = Path(config.dataset_path)
+        if not p.exists() and (settings.dataset_dir / config.dataset_path).exists():
+            config.dataset_path = str(settings.dataset_dir / config.dataset_path)
+
+        detector = get_detector()
+        if detector is None or not detector.is_loaded:
+            from backend.detection.detector import load_detector
+            detector = load_detector()
+
+        metrics = await run_evaluation(config, detector=detector)
 
         exp = ExperimentResult(
             experiment_name=config.experiment_name,
@@ -99,9 +110,31 @@ async def _eval_task(config: EvaluationConfig) -> None:
             session.add(exp)
             await session.commit()
     except Exception as exc:
-        import traceback
-        from loguru import logger
         logger.error(f"Evaluation task failed: {exc}\n{traceback.format_exc()}")
+        try:
+            err_exp = ExperimentResult(
+                experiment_name=config.experiment_name or "eval_error",
+                model_name=config.model_name,
+                dataset_name=config.dataset_name,
+                metrics={
+                    "status": "error",
+                    "error_message": str(exc),
+                    "precision": 0.0,
+                    "recall": 0.0,
+                    "f1": 0.0,
+                    "map50": 0.0,
+                },
+                config={
+                    "iou_threshold": config.iou_threshold,
+                    "confidence_threshold": config.confidence_threshold,
+                },
+                notes=f"Error: {exc}",
+            )
+            async with AsyncSessionLocal() as session:
+                session.add(err_exp)
+                await session.commit()
+        except Exception:
+            pass
     finally:
         _running_eval = False
 
