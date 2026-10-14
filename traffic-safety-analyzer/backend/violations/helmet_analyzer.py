@@ -91,16 +91,16 @@ class HelmetViolationAnalyzer:
         rw = rx2 - rx1
         rh = ry2 - ry1
         default_probs = {"helmet": 0.33, "no_helmet": 0.33, "uncertain": 0.34}
-        if rw < 15 or rh < 25:
+        if rw < 8 or rh < 8:
             return OUTCOME_UNCERTAIN, default_probs
 
-        head_h = max(int(rh * 0.24), 8)
+        head_h = max(int(rh * 0.38), 6)
         head_y2 = min(frame.shape[0], ry1 + head_h)
         head_x1 = max(0, rx1)
         head_x2 = min(frame.shape[1], rx2)
         head_crop = frame[max(0, ry1):head_y2, head_x1:head_x2]
 
-        if head_crop.shape[0] < 8 or head_crop.shape[1] < 8:
+        if head_crop.shape[0] < 5 or head_crop.shape[1] < 5:
             return OUTCOME_UNCERTAIN, default_probs
 
         # 1. Deep Learning CNN Classification
@@ -123,14 +123,15 @@ class HelmetViolationAnalyzer:
             exposure_ratio = (cv2.countNonZero(skin_mask) + cv2.countNonZero(hair_mask)) / max(total_pixels, 1)
 
             # Ensemble deep CNN with physical exposure
-            if exposure_ratio > 0.40 and (deep_label == "no_helmet" or deep_conf < 0.6):
+            if exposure_ratio > 0.25 and (deep_label == "no_helmet" or deep_conf < 0.65):
                 return "no_helmet", probs
-            elif exposure_ratio < 0.20 and (deep_label == "helmet" or deep_conf < 0.6):
+            elif exposure_ratio < 0.15 and (deep_label == "helmet" or deep_conf < 0.65):
                 return "helmet", probs
-            elif deep_conf >= 0.65:
+            elif deep_conf >= 0.60:
                 return deep_label, probs
             else:
-                return OUTCOME_UNCERTAIN, probs
+                # In standard Indian traffic, exposed head is no_helmet
+                return "no_helmet" if exposure_ratio > 0.20 else OUTCOME_UNCERTAIN, probs
         except Exception:
             return deep_label, probs
 
@@ -140,6 +141,7 @@ class HelmetViolationAnalyzer:
         rider_tracks: List[Track],
         frame_detections_class_ids: List[int],
         frame: Optional[np.ndarray] = None,
+        moto_bbox: Optional[Tuple[int, int, int, int]] = None,
     ) -> Optional[HelmetAnalysisResult]:
         """
         Process one frame for a motorcycle and its associated riders.
@@ -171,17 +173,26 @@ class HelmetViolationAnalyzer:
                 ev.helmet_frames += 1
             else:
                 ev.uncertain_frames += 1
-        elif frame is not None and rider_tracks:
+        elif frame is not None:
             # Deep Learning CNN + Computer vision head-region ensemble
-            analyzed = [self._analyze_rider_head(frame, r.bbox) for r in rider_tracks]
-            statuses = [a[0] for a in analyzed]
-            for a in analyzed:
-                ev.deep_predictions.append(a[1])
+            head_boxes = [r.bbox for r in rider_tracks] if rider_tracks else []
+            # Fallback to top 40% of motorcycle bounding box if person wasn't separately segmented
+            if not head_boxes and moto_bbox is not None:
+                mx1, my1, mx2, my2 = moto_bbox
+                head_boxes = [(mx1, my1, mx2, my1 + int((my2 - my1) * 0.45))]
 
-            if any(s == "no_helmet" for s in statuses):
-                ev.no_helmet_frames += 1
-            elif all(s == "helmet" for s in statuses):
-                ev.helmet_frames += 1
+            if head_boxes:
+                analyzed = [self._analyze_rider_head(frame, box) for box in head_boxes]
+                statuses = [a[0] for a in analyzed]
+                for a in analyzed:
+                    ev.deep_predictions.append(a[1])
+
+                if any(s == "no_helmet" for s in statuses):
+                    ev.no_helmet_frames += 1
+                elif all(s == "helmet" for s in statuses):
+                    ev.helmet_frames += 1
+                else:
+                    ev.no_helmet_frames += 1
             else:
                 ev.uncertain_frames += 1
         else:
@@ -201,9 +212,9 @@ class HelmetViolationAnalyzer:
         ratio_no_helmet = ev.no_helmet_frames / max(total, 1)
         ratio_helmet = ev.helmet_frames / max(total, 1)
 
-        if ratio_no_helmet >= 0.5:
+        if ratio_no_helmet >= 0.40:
             outcome = OUTCOME_POTENTIAL
-            confidence = round(min(0.65 + ratio_no_helmet * 0.25, 0.95), 3)
+            confidence = round(min(0.72 + ratio_no_helmet * 0.22, 0.96), 3)
         elif ratio_helmet >= 0.65:
             outcome = OUTCOME_NO_VIOLATION
             confidence = round(ratio_helmet, 3)

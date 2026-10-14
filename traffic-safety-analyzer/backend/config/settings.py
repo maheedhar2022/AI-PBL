@@ -31,15 +31,15 @@ class Settings(BaseSettings):
 
     # AI Model
     model_name: str = "yolov8n.pt"
-    confidence_threshold: float = 0.40
+    confidence_threshold: float = 0.25
     iou_threshold: float = 0.45
     max_detections: int = 50
 
     # Violation rules
-    helmet_frames_required: int = 5
-    triple_frames_required: int = 5
+    helmet_frames_required: int = 3
+    triple_frames_required: int = 3
     min_rider_association_iou: float = 0.10
-    dedup_seconds: int = 30
+    dedup_seconds: int = 15
 
     # Storage
     evidence_dir: Path = Path("./evidence")

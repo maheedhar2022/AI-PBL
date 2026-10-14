@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import {
   Play, Square, Camera, Video, AlertTriangle, Car, Bike, Bus, Truck, Users, Activity,
   Upload, Film, Image as ImageIcon, Trash2, Download, X, Clock, Disc,
-  Maximize2, Minimize2, Volume2, VolumeX, Cpu, Layers, Zap, ShieldCheck, Eye
+  Maximize2, Minimize2, Volume2, VolumeX, Eye, ArrowRight, ShieldCheck
 } from 'lucide-react'
+import { format } from 'date-fns'
 import {
   startMonitoring, stopMonitoring, getMonitoringStatus, getLatestFrame, configureCamera,
   uploadVideoFile, startRecording, stopRecording, listRecordings, deleteRecording,
@@ -38,6 +39,7 @@ interface WsEvent {
   violation_type?: string
   confidence?: number
   vehicle_number?: string
+  timestamp?: string
 }
 
 interface RecordingItem {
@@ -201,7 +203,11 @@ export default function LiveMonitoring() {
       if (ev.type === 'frame_update' && ev.metrics) {
         setMetrics(ev.metrics)
       } else if (ev.type === 'new_incident') {
-        setAlerts(prev => [ev, ...prev].slice(0, 10))
+        const enriched: WsEvent = {
+          ...ev,
+          timestamp: ev.timestamp || new Date().toISOString(),
+        }
+        setAlerts(prev => [enriched, ...prev].slice(0, 20))
         playViolationChime()
       }
     }, [playViolationChime]),
@@ -547,186 +553,146 @@ export default function LiveMonitoring() {
             </div>
           </div>
 
-          {/* Active AI Neural Pipeline Badge */}
-          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-900/90 border border-purple-900/50 text-xs">
+          {/* Stream Telemetry & Compact Vehicle Counter */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+            {/* Live Traffic Vehicle Counts */}
+            <div className="flex items-center gap-2.5 flex-wrap text-gray-300">
+              <span className="text-gray-400 font-medium flex items-center gap-1 text-[11px] uppercase tracking-wider">
+                <Activity className="w-3.5 h-3.5 text-blue-400" /> Active:
+              </span>
+              <span className="bg-gray-800/80 border border-gray-750 px-2 py-0.5 rounded-md flex items-center gap-1.5 font-mono text-[11px]">
+                <Car className="w-3 h-3 text-cyan-400" /> {counts.cars ?? 0} Cars
+              </span>
+              <span className="bg-gray-800/80 border border-gray-750 px-2 py-0.5 rounded-md flex items-center gap-1.5 font-mono text-[11px]">
+                <Bike className="w-3 h-3 text-green-400" /> {counts.motorcycles ?? 0} Bikes
+              </span>
+              <span className="bg-gray-800/80 border border-gray-750 px-2 py-0.5 rounded-md flex items-center gap-1.5 font-mono text-[11px]">
+                <Bus className="w-3 h-3 text-amber-400" /> {counts.buses ?? 0} Buses
+              </span>
+              <span className="bg-gray-800/80 border border-gray-750 px-2 py-0.5 rounded-md flex items-center gap-1.5 font-mono text-[11px]">
+                <Truck className="w-3 h-3 text-purple-400" /> {counts.trucks ?? 0} Trucks
+              </span>
+              <span className="bg-gray-800/80 border border-gray-750 px-2 py-0.5 rounded-md flex items-center gap-1.5 font-mono text-[11px]">
+                <Users className="w-3 h-3 text-orange-400" /> {counts.pedestrians ?? 0} Pedestrians
+              </span>
+            </div>
+
+            {/* Performance Stats */}
+            <div className="flex items-center gap-2.5 text-gray-400 font-mono text-[11px] ml-auto">
+              <span>{metrics.inference_fps?.toFixed(1) ?? '—'} FPS</span>
+              <span>•</span>
+              <span>{metrics.last_inference_ms?.toFixed(0) ?? '—'} ms</span>
+              <span>•</span>
+              <span>{metrics.frames_processed?.toLocaleString() ?? '0'} frames</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Safety Violations & ANPR Alerts Sidebar */}
+        <div className="card space-y-3 flex flex-col h-full min-h-[460px]">
+          <div className="flex items-center justify-between border-b border-gray-800 pb-2.5">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-              <span className="text-gray-300 font-semibold flex items-center gap-1.5">
-                <Cpu className="w-3.5 h-3.5 text-purple-400" /> Neural Vision Pipeline:
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
               </span>
-              <span className="text-purple-300 font-mono text-[11px] hidden md:inline">
-                YOLOv8-CSP (3.15M) + DeepHelmetCNN-SE + DeepSORT (128-d ReID) + ViolationMLP
-              </span>
+              <h2 className="font-bold text-white text-sm">Live Safety Violations</h2>
+              {alerts.length > 0 && (
+                <span className="bg-red-950/80 text-red-300 border border-red-800/80 text-[10px] font-mono px-1.5 py-0.5 rounded-full">
+                  {alerts.length}
+                </span>
+              )}
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950/80 text-purple-300 font-mono border border-purple-800">
-              3.83M DL Params
-            </span>
-          </div>
-
-          {/* Live Performance Bar */}
-          <div className="flex gap-4 flex-wrap text-xs text-gray-500 pt-1">
-            <span>Inference FPS: <b className="text-gray-300">{metrics.inference_fps?.toFixed(1) ?? '—'}</b></span>
-            <span>Latency: <b className="text-gray-300">{metrics.last_inference_ms?.toFixed(0) ?? '—'} ms</b></span>
-            <span>Frames: <b className="text-gray-300">{metrics.frames_processed?.toLocaleString() ?? '—'}</b></span>
-            <span>Total Alerts: <b className="text-gray-300">{metrics.incidents_created ?? '—'}</b></span>
-          </div>
-
-          {/* Live Traffic Vehicle Analytics Breakdown */}
-          <div className="border-t border-gray-800 pt-3">
-            <div className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
-              <Activity className="w-3.5 h-3.5 text-blue-400" /> Active Traffic Breakdown (Current View)
-            </div>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
-              <div className="bg-gray-800/80 border border-gray-750 p-2 rounded-lg">
-                <Car className="w-4 h-4 mx-auto mb-1 text-cyan-400" />
-                <div className="text-lg font-bold text-white">{counts.cars ?? 0}</div>
-                <div className="text-[10px] text-gray-400">Cars</div>
-              </div>
-              <div className="bg-gray-800/80 border border-gray-750 p-2 rounded-lg">
-                <Bike className="w-4 h-4 mx-auto mb-1 text-green-400" />
-                <div className="text-lg font-bold text-white">{counts.motorcycles ?? 0}</div>
-                <div className="text-[10px] text-gray-400">Motorcycles</div>
-              </div>
-              <div className="bg-gray-800/80 border border-gray-750 p-2 rounded-lg">
-                <Bus className="w-4 h-4 mx-auto mb-1 text-amber-400" />
-                <div className="text-lg font-bold text-white">{counts.buses ?? 0}</div>
-                <div className="text-[10px] text-gray-400">Buses</div>
-              </div>
-              <div className="bg-gray-800/80 border border-gray-750 p-2 rounded-lg">
-                <Truck className="w-4 h-4 mx-auto mb-1 text-purple-400" />
-                <div className="text-lg font-bold text-white">{counts.trucks ?? 0}</div>
-                <div className="text-[10px] text-gray-400">Trucks</div>
-              </div>
-              <div className="bg-gray-800/80 border border-gray-750 p-2 rounded-lg">
-                <Bike className="w-4 h-4 mx-auto mb-1 text-lime-400" />
-                <div className="text-lg font-bold text-white">{counts.bicycles ?? 0}</div>
-                <div className="text-[10px] text-gray-400">Bicycles</div>
-              </div>
-              <div className="bg-gray-800/80 border border-gray-750 p-2 rounded-lg">
-                <Users className="w-4 h-4 mx-auto mb-1 text-orange-400" />
-                <div className="text-lg font-bold text-white">{counts.pedestrians ?? 0}</div>
-                <div className="text-[10px] text-gray-400">Pedestrians</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Active Deep Learning Neural Pipeline Status Card */}
-        <div className="card space-y-2.5 border border-purple-900/50 bg-gray-900/90 shadow-md">
-          <div className="flex items-center justify-between border-b border-gray-800 pb-2">
-            <h2 className="font-semibold text-white flex items-center gap-2 text-xs">
-              <Cpu className="w-4 h-4 text-purple-400" />
-              Active Deep Learning Models
-            </h2>
-            <Link to="/settings" className="text-[11px] text-purple-400 hover:text-purple-300 flex items-center gap-1 font-medium">
-              Benchmark <Zap className="w-3 h-3 text-yellow-400" />
-            </Link>
-          </div>
-          <div className="space-y-1.5 text-xs">
-            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
-              <div className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                <div>
-                  <div className="font-semibold text-white">YOLOv8 Deep Detector</div>
-                  <div className="text-[10px] text-gray-400">3.15M params · Vehicles & Pedestrians</div>
-                </div>
-              </div>
-              <span className="badge bg-blue-950 text-blue-300 text-[10px] font-mono border border-blue-800">Active</span>
-            </div>
-
-            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <div>
-                  <div className="font-semibold text-white">DeepHelmetCNN-SE</div>
-                  <div className="text-[10px] text-gray-400">184K params · SE Attention Head Net</div>
-                </div>
-              </div>
-              <span className="badge bg-amber-950 text-amber-300 text-[10px] font-mono border border-amber-800">Active</span>
-            </div>
-
-            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
-              <div className="flex items-center gap-2">
-                <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <div>
-                  <div className="font-semibold text-white">DeepSORT Visual Re-ID</div>
-                  <div className="text-[10px] text-gray-400">480K params · 128-d Cosine Embeddings</div>
-                </div>
-              </div>
-              <span className="badge bg-cyan-950 text-cyan-300 text-[10px] font-mono border border-cyan-800">Active</span>
-            </div>
-
-            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
-              <div className="flex items-center gap-2">
-                <Activity className="w-3.5 h-3.5 text-green-400 shrink-0" />
-                <div>
-                  <div className="font-semibold text-white">ViolationRiskMLP</div>
-                  <div className="text-[10px] text-gray-400">7.7K params · Spatio-Temporal Kinematics</div>
-                </div>
-              </div>
-              <span className="badge bg-green-950 text-green-300 text-[10px] font-mono border border-green-800">Active</span>
-            </div>
-
-            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
-              <div className="flex items-center gap-2">
-                <span className="text-sm shrink-0">🇮🇳</span>
-                <div>
-                  <div className="font-semibold text-white">IndianANPR-HSRP OCR Net</div>
-                  <div className="text-[10px] text-gray-400">71K params · MoRTH Vehicle Plate Recognition</div>
-                </div>
-              </div>
-              <span className="badge bg-indigo-950 text-indigo-300 text-[10px] font-mono border border-indigo-800">Active</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Live Alerts & Incident Log Panel */}
-        <div className="card space-y-3 flex flex-col">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-white flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-orange-400" />
-              Safety Alerts & Violations
-            </h2>
-            {alerts.length > 0 && (
-              <button
-                onClick={() => setAlerts([])}
-                className="text-[11px] text-gray-500 hover:text-gray-300 underline"
-                title="Clear alerts list"
+            <div className="flex items-center gap-2">
+              {alerts.length > 0 && (
+                <button
+                  onClick={() => setAlerts([])}
+                  className="text-[11px] text-gray-400 hover:text-white transition-colors"
+                  title="Clear live alert list"
+                >
+                  Clear
+                </button>
+              )}
+              <Link
+                to="/incidents"
+                className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-0.5 font-medium"
               >
-                Clear
-              </button>
-            )}
+                All Incidents <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
           </div>
+
           {alerts.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-gray-600 text-sm p-6 text-center">
-              <AlertTriangle className="w-8 h-8 opacity-20 mb-2" />
-              <span>Monitoring active road feed.</span>
-              <span className="text-xs text-gray-700 mt-1">Detections meeting temporal confidence criteria will populate here.</span>
+            <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-xs p-6 text-center space-y-2">
+              <div className="w-12 h-12 rounded-full bg-gray-800/60 flex items-center justify-center text-gray-600 mb-1">
+                <AlertTriangle className="w-6 h-6 opacity-40" />
+              </div>
+              <span className="font-medium text-gray-300 text-sm">No Active Violations</span>
+              <span className="text-gray-500 max-w-xs leading-relaxed">
+                The AI vision system is monitoring for helmetless riding and triple riding. Violations with recognized vehicle plates will pop up here in real time.
+              </span>
             </div>
           ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto flex-1">
-              {alerts.map((ev, i) => (
-                <div key={i} className="bg-gray-800 border border-gray-700/60 rounded-lg p-3 space-y-1.5 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <span className={ev.violation_type === 'helmet_violation' ? 'badge-helmet' : 'badge badge-triple'}>
-                      {ev.violation_type === 'helmet_violation' ? 'Helmet Alert' : 'Triple Riding'}
-                    </span>
-                    <span className="text-xs text-gray-400 font-mono">{((ev.confidence ?? 0) * 100).toFixed(0)}%</span>
-                  </div>
-                  {ev.vehicle_number && (
-                    <div className="flex items-center gap-1.5 py-0.5">
-                      <span className="text-[11px] font-mono bg-yellow-950/80 text-yellow-300 border border-yellow-700/70 px-2 py-0.5 rounded font-bold tracking-wider flex items-center gap-1.5 shadow-inner">
-                        <span>🇮🇳</span> {ev.vehicle_number}
+            <div className="space-y-2.5 overflow-y-auto flex-1 pr-1 max-h-[580px]">
+              {alerts.map((ev, i) => {
+                const isHelmet = ev.violation_type === 'helmet_violation'
+                return (
+                  <div
+                    key={`${ev.incident_id || i}-${i}`}
+                    className={`rounded-xl p-3 border transition-all duration-200 shadow-sm ${
+                      isHelmet
+                        ? 'bg-red-950/20 border-red-900/60 hover:border-red-700/80'
+                        : 'bg-amber-950/20 border-amber-900/60 hover:border-amber-700/80'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={isHelmet ? 'badge-helmet' : 'badge badge-triple'}>
+                        {isHelmet ? '🪖 Helmet Alert' : '🏍️ Triple Riding'}
                       </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-gray-300">
+                          {((ev.confidence ?? 0) * 100).toFixed(0)}% conf
+                        </span>
+                        {ev.timestamp && (
+                          <span className="text-[10px] text-gray-500">
+                            {format(new Date(ev.timestamp), 'HH:mm:ss')}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  <div className="text-xs text-gray-500 font-mono truncate">Incident: {ev.incident_id?.slice(0, 8)}</div>
-                </div>
-              ))}
+
+                    {/* Detected Indian Vehicle Number Plate */}
+                    <div className="mt-2.5 pt-2 border-t border-gray-800/70 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {ev.vehicle_number ? (
+                          <span className="font-mono text-xs bg-yellow-950/90 border border-yellow-700/80 text-yellow-300 px-2 py-0.5 rounded font-black tracking-wider flex items-center gap-1.5 shadow-sm">
+                            <span>🇮🇳</span> {ev.vehicle_number}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-gray-500 font-mono">Plate scanning...</span>
+                        )}
+                      </div>
+
+                      {ev.incident_id && (
+                        <Link
+                          to={`/incidents?status=pending`}
+                          className="text-[11px] text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1 hover:underline"
+                        >
+                          Review <ArrowRight className="w-3 h-3" />
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
-          <div className="text-xs text-gray-600 pt-2 border-t border-gray-800">
-            Recorded incidents saved to database with evidence crops.
+
+          <div className="text-[11px] text-gray-500 pt-2 border-t border-gray-800 flex items-center justify-between">
+            <span>Evidence crops & plates logged</span>
+            <Link to="/incidents" className="text-blue-400 hover:underline">
+              Incident Database →
+            </Link>
           </div>
         </div>
       </div>

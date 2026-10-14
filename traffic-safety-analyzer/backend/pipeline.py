@@ -420,12 +420,12 @@ class ViolationPipeline:
                 st, probs = self._helmet_analyzer._analyze_rider_head(captured.frame, r.bbox)
                 if st == "no_helmet":
                     conf_p = int(probs.get("no_helmet", 0.85) * 100)
-                    rider_tags[r.track_id] = (f"DL NO-HELMET ({conf_p}%)", (0, 0, 255))
+                    rider_tags[r.track_id] = (f"NO HELMET ({conf_p}%)", (0, 0, 240))
                 elif st == "helmet":
                     conf_p = int(probs.get("helmet", 0.90) * 100)
-                    rider_tags[r.track_id] = (f"DL HELMET ({conf_p}%)", (0, 235, 100))
+                    rider_tags[r.track_id] = ("HELMET", (0, 200, 80))
                 else:
-                    rider_tags[r.track_id] = ("DL RIDER", (255, 180, 0))
+                    rider_tags[r.track_id] = ("RIDER", (220, 160, 0))
 
             # Run Indian ANPR Plate Recognition on the motorcycle
             plate_res = self._plate_detector.recognize_plate(
@@ -444,6 +444,7 @@ class ViolationPipeline:
                 rider_tracks=rider_tracks,
                 frame_detections_class_ids=frame_class_ids,
                 frame=captured.frame,
+                moto_bbox=moto.bbox,
             )
             if helmet_result and helmet_result.outcome == OUTCOME_POTENTIAL:
                 async with AsyncSessionLocal() as db:
@@ -476,6 +477,7 @@ class ViolationPipeline:
                                 "violation_type": inc.violation_type,
                                 "confidence": inc.confidence,
                                 "vehicle_number": inc.vehicle_number,
+                                "timestamp": inc.event_timestamp.isoformat(),
                             })
 
             # ── Triple riding analysis ───────────────────────────────────
@@ -486,23 +488,21 @@ class ViolationPipeline:
                 frame_shape=captured.frame.shape[:2],
             )
 
-            # Deep risk tag and Indian ANPR badge for motorcycle
+            # Clean safety tag and Indian ANPR badge for motorcycle
             rider_count = len(rider_ids)
             has_no_helmet = any(
-                rider_tags.get(r.track_id, ("", ()))[0].startswith("DL NO-HELMET")
+                rider_tags.get(r.track_id, ("", ()))[0].startswith("NO HELMET")
                 for r in rider_tracks
             )
             plate_badge = f" | 🇮🇳 {stable_plate}" if stable_plate else ""
             if rider_count >= 3:
-                moto_tags[moto.track_id] = (f"🚨 DL TRIPLE RIDING ({rider_count} RIDERS){plate_badge}", (0, 0, 255))
+                moto_tags[moto.track_id] = (f"🚨 TRIPLE RIDING ({rider_count}){plate_badge}", (0, 0, 240))
             elif has_no_helmet:
-                moto_tags[moto.track_id] = (f"🚨 DL NO-HELMET{plate_badge}", (0, 0, 255))
-            elif rider_count == 2:
-                moto_tags[moto.track_id] = (f"DL RIDING (2 RIDERS){plate_badge}", (0, 220, 255))
-            elif rider_count == 1:
-                moto_tags[moto.track_id] = (f"DL RIDING (1 RIDER){plate_badge}", (0, 255, 120))
+                moto_tags[moto.track_id] = (f"🚨 NO HELMET{plate_badge}", (0, 0, 240))
+            elif rider_count >= 1:
+                moto_tags[moto.track_id] = (f"Motorcycle{plate_badge}", (0, 220, 120))
             else:
-                moto_tags[moto.track_id] = (f"MOTORCYCLE{plate_badge}", (0, 255, 200))
+                moto_tags[moto.track_id] = (f"Motorcycle{plate_badge}", (0, 200, 200))
 
             if triple_result and triple_result.outcome == OUTCOME_POTENTIAL:
                 async with AsyncSessionLocal() as db:
@@ -535,6 +535,7 @@ class ViolationPipeline:
                                 "violation_type": inc.violation_type,
                                 "confidence": inc.confidence,
                                 "vehicle_number": inc.vehicle_number,
+                                "timestamp": inc.event_timestamp.isoformat(),
                             })
 
         return rider_tags, moto_tags
@@ -554,67 +555,56 @@ class ViolationPipeline:
         rider_tags = rider_tags or {}
         moto_tags = moto_tags or {}
 
-        # Draw 2-row Deep Learning AI Telemetry HUD bar at the top of the video
-        hud_h = 42
+        # Sleek, minimal top status pill
+        hud_h = 28
         overlay = frame.copy()
-        cv2.rectangle(overlay, (0, 0), (w, hud_h), (12, 12, 16), -1)
-        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
+        cv2.rectangle(overlay, (8, 6), (280, 6 + hud_h), (15, 17, 23), -1)
+        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+        cv2.rectangle(frame, (8, 6), (280, 6 + hud_h), (50, 55, 70), 1)
 
-        counts = self.metrics.vehicle_counts
-        hud_text = (
-            f"LIVE CCTV | Flow: {self.metrics.traffic_density} | Vehicles: {self.metrics.active_vehicles} "
-            f"(Cars:{counts.get('cars',0)} Bikes:{counts.get('motorcycles',0)} "
-            f"Buses:{counts.get('buses',0)} Trucks:{counts.get('trucks',0)})"
-        )
-        density_color = (
-            (0, 255, 120) if self.metrics.traffic_density == "Light"
-            else (0, 200, 255) if self.metrics.traffic_density == "Moderate"
-            else (0, 100, 255)
-        )
-        cv2.putText(frame, hud_text, (10, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (240, 240, 240), 1, cv2.LINE_AA)
-        cv2.circle(frame, (w - 20, 14), 5, density_color, -1)
-
-        # Row 2: Deep Learning Neural Pipeline Indicator with Indian ANPR
-        ai_hud = "AI PIPELINE: YOLOv8-CSP | DeepHelmetCNN-SE | DeepSORT Re-ID | ViolationMLP | IndianANPR-HSRP"
-        cv2.putText(frame, ai_hud, (10, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (215, 130, 255), 1, cv2.LINE_AA)
+        # Glowing green status indicator
+        cv2.circle(frame, (22, 20), 4, (0, 230, 100), -1)
+        top_text = f"CCTV AI | {self.metrics.traffic_density} Flow | {self.metrics.active_vehicles} Vehicles"
+        cv2.putText(frame, top_text, (33, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (230, 230, 230), 1, cv2.LINE_AA)
 
         if self._recorder.is_recording:
-            cv2.putText(frame, "REC", (w - 75, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 255), 2, cv2.LINE_AA)
-            cv2.circle(frame, (w - 40, 17), 5, (0, 0, 255), -1)
+            rec_pill_w = 75
+            cv2.rectangle(frame, (w - rec_pill_w - 10, 6), (w - 10, 6 + hud_h), (20, 20, 25), -1)
+            cv2.rectangle(frame, (w - rec_pill_w - 10, 6), (w - 10, 6 + hud_h), (0, 0, 220), 1)
+            cv2.circle(frame, (w - rec_pill_w + 3, 20), 4, (0, 0, 240), -1)
+            cv2.putText(frame, "REC", (w - rec_pill_w + 14, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (240, 240, 240), 1, cv2.LINE_AA)
 
         # Draw motion trajectory trails and track badges
         for t in tracks:
             if len(t.history) >= 2:
                 pts = np.array(t.history, dtype=np.int32).reshape((-1, 1, 2))
-                trail_color = (0, 240, 255) if t.class_name in ("car", "motorcycle") else (255, 180, 50)
-                cv2.polylines(frame, [pts], isClosed=False, color=trail_color, thickness=2, lineType=cv2.LINE_AA)
-                cv2.circle(frame, t.history[-1], 3, (0, 255, 255), -1)
+                trail_color = (0, 220, 240) if t.class_name in ("car", "motorcycle") else (220, 180, 60)
+                cv2.polylines(frame, [pts], isClosed=False, color=trail_color, thickness=1, lineType=cv2.LINE_AA)
 
             x1, y1, x2, y2 = t.bbox
-            speed_str = f" {int(t.speed_px_s)}px/s" if t.speed_px_s > 8 else ""
 
-            # Check if this track has a Deep Learning label
+            # Check if this track has a violation or identification label
             if t.track_id in rider_tags:
                 r_text, r_color = rider_tags[t.track_id]
-                label = f"DeepSORT #{t.track_id} | {r_text}"
+                label = f"#{t.track_id} {r_text}"
                 bg_color = r_color
             elif t.track_id in moto_tags:
                 m_text, m_color = moto_tags[t.track_id]
-                label = f"DeepSORT #{t.track_id}{speed_str} | {m_text}"
+                label = f"#{t.track_id} {m_text}"
                 bg_color = m_color
             else:
-                label = f"DeepSORT #{t.track_id}{speed_str}"
-                bg_color = (25, 25, 30)
+                label = f"{t.class_name} #{t.track_id}"
+                bg_color = (25, 27, 35)
 
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.38, 1)
-            badge_y1 = min(h - 18, y2 + 2)
-            badge_y2 = min(h - 2, badge_y1 + th + 6)
-            cv2.rectangle(frame, (x1, badge_y1), (x1 + tw + 6, badge_y2), (10, 10, 15), -1)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.36, 1)
+            badge_y1 = max(4, y1 - th - 6)
+            badge_y2 = badge_y1 + th + 6
+            cv2.rectangle(frame, (x1, badge_y1), (x1 + tw + 6, badge_y2), (12, 14, 18), -1)
             cv2.rectangle(frame, (x1, badge_y1), (x1 + tw + 6, badge_y2), bg_color, 1)
-            text_color = (255, 255, 255) if bg_color != (25, 25, 30) else (255, 230, 0)
+            text_color = (255, 255, 255) if bg_color != (25, 27, 35) else (200, 205, 215)
             cv2.putText(
-                frame, label, (x1 + 3, badge_y1 + th + 3),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.38, text_color, 1, cv2.LINE_AA
+                frame, label, (x1 + 3, badge_y1 + th + 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.36, text_color, 1, cv2.LINE_AA
             )
         return frame
 
