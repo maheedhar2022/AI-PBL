@@ -38,3 +38,4 @@ async def run_models_benchmark(req: BenchmarkRequest = BenchmarkRequest()):
         return results
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Benchmark execution failed: {exc}")
+

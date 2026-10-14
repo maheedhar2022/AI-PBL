@@ -207,3 +207,4 @@ async def test_models_benchmark_api_endpoint():
         assert "reid_embedding_extraction" in data["results"]
         assert "violation_mlp_risk" in data["results"]
         assert data["results"]["helmet_cnn_inference"]["mean_ms"] > 0.0
+

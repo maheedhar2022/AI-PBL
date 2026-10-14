@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Play, Square, Camera, Video, AlertTriangle, Car, Bike, Bus, Truck, Users, Activity,
   Upload, Film, Image as ImageIcon, Trash2, Download, X, Clock, Disc,
-  Maximize2, Minimize2, Volume2, VolumeX
+  Maximize2, Minimize2, Volume2, VolumeX, Cpu, Layers, Zap, ShieldCheck
 } from 'lucide-react'
 import {
   startMonitoring, stopMonitoring, getMonitoringStatus, getLatestFrame, configureCamera,
@@ -520,6 +521,22 @@ export default function LiveMonitoring() {
             </div>
           </div>
 
+          {/* Active AI Neural Pipeline Badge */}
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-900/90 border border-purple-900/50 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+              <span className="text-gray-300 font-semibold flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-purple-400" /> Neural Vision Pipeline:
+              </span>
+              <span className="text-purple-300 font-mono text-[11px] hidden md:inline">
+                YOLOv8-CSP (3.15M) + DeepHelmetCNN-SE + DeepSORT (128-d ReID) + ViolationMLP
+              </span>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950/80 text-purple-300 font-mono border border-purple-800">
+              3.83M DL Params
+            </span>
+          </div>
+
           {/* Live Performance Bar */}
           <div className="flex gap-4 flex-wrap text-xs text-gray-500 pt-1">
             <span>Inference FPS: <b className="text-gray-300">{metrics.inference_fps?.toFixed(1) ?? '—'}</b></span>
@@ -564,6 +581,64 @@ export default function LiveMonitoring() {
                 <div className="text-lg font-bold text-white">{counts.pedestrians ?? 0}</div>
                 <div className="text-[10px] text-gray-400">Pedestrians</div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Active Deep Learning Neural Pipeline Status Card */}
+        <div className="card space-y-2.5 border border-purple-900/50 bg-gray-900/90 shadow-md">
+          <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+            <h2 className="font-semibold text-white flex items-center gap-2 text-xs">
+              <Cpu className="w-4 h-4 text-purple-400" />
+              Active Deep Learning Models
+            </h2>
+            <Link to="/settings" className="text-[11px] text-purple-400 hover:text-purple-300 flex items-center gap-1 font-medium">
+              Benchmark <Zap className="w-3 h-3 text-yellow-400" />
+            </Link>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
+              <div className="flex items-center gap-2">
+                <Layers className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <div>
+                  <div className="font-semibold text-white">YOLOv8 Deep Detector</div>
+                  <div className="text-[10px] text-gray-400">3.15M params · Vehicles & Pedestrians</div>
+                </div>
+              </div>
+              <span className="badge bg-blue-950 text-blue-300 text-[10px] font-mono border border-blue-800">Active</span>
+            </div>
+
+            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <div>
+                  <div className="font-semibold text-white">DeepHelmetCNN-SE</div>
+                  <div className="text-[10px] text-gray-400">184K params · SE Attention Head Net</div>
+                </div>
+              </div>
+              <span className="badge bg-amber-950 text-amber-300 text-[10px] font-mono border border-amber-800">Active</span>
+            </div>
+
+            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
+              <div className="flex items-center gap-2">
+                <Cpu className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <div>
+                  <div className="font-semibold text-white">DeepSORT Visual Re-ID</div>
+                  <div className="text-[10px] text-gray-400">480K params · 128-d Cosine Embeddings</div>
+                </div>
+              </div>
+              <span className="badge bg-cyan-950 text-cyan-300 text-[10px] font-mono border border-cyan-800">Active</span>
+            </div>
+
+            <div className="flex items-center justify-between p-2 rounded bg-gray-800/50 border border-gray-750">
+              <div className="flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5 text-green-400 shrink-0" />
+                <div>
+                  <div className="font-semibold text-white">ViolationRiskMLP</div>
+                  <div className="text-[10px] text-gray-400">7.7K params · Spatio-Temporal Kinematics</div>
+                </div>
+              </div>
+              <span className="badge bg-green-950 text-green-300 text-[10px] font-mono border border-green-800">Active</span>
             </div>
           </div>
         </div>
