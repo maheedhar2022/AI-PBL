@@ -387,6 +387,8 @@ class ViolationPipeline:
             triple_result = self._triple_analyzer.update(
                 moto_track_id=moto.track_id,
                 rider_tracks=rider_tracks,
+                moto_track=moto,
+                frame_shape=captured.frame.shape[:2],
             )
             if triple_result and triple_result.outcome == OUTCOME_POTENTIAL:
                 async with AsyncSessionLocal() as db:

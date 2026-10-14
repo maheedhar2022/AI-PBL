@@ -25,6 +25,7 @@ from backend.config.constants import (
 )
 from backend.config.settings import settings
 from backend.tracking.tracker import Track
+from backend.models.helmet_classifier import DeepHelmetClassifier
 
 
 @dataclass
@@ -39,12 +40,14 @@ class HelmetEvidence:
     # Frames with uncertain status (no reliable classification)
     uncertain_frames: int = 0
     total_frames: int = 0
+    deep_predictions: List[Dict[str, float]] = field(default_factory=list)
 
     def clear(self) -> None:
         self.no_helmet_frames = 0
         self.helmet_frames = 0
         self.uncertain_frames = 0
         self.total_frames = 0
+        self.deep_predictions.clear()
 
 
 @dataclass
@@ -59,69 +62,77 @@ class HelmetAnalysisResult:
 
 class HelmetViolationAnalyzer:
     """
-    Accumulates per-track evidence and classifies helmet status.
-
-    NOTE: Without a dedicated helmet dataset/model, this module uses
-    a head-region heuristic:
-    - If person bbox has a tall aspect ratio and occupies sufficient
-      vertical space within the motorcycle region, helmet status is
-      marked 'uncertain' (conservative).
-    - If HELMET_ABSENT_CLASSES are populated from a custom model,
-      explicit no-helmet detections drive the classification.
+    Accumulates per-track evidence and classifies helmet status using
+    a hybrid Deep Learning CNN (DeepHelmetCNN-SE) and head-region computer vision.
     """
 
-    def __init__(self, frames_required: int | None = None) -> None:
+    def __init__(
+        self,
+        frames_required: int | None = None,
+        deep_classifier: Optional[DeepHelmetClassifier] = None,
+    ) -> None:
         self._frames_required = frames_required or settings.helmet_frames_required
         self._evidence: Dict[int, HelmetEvidence] = {}
+        self._deep_classifier = deep_classifier
+
+    def _get_deep_classifier(self) -> DeepHelmetClassifier:
+        if self._deep_classifier is None:
+            self._deep_classifier = DeepHelmetClassifier()
+        return self._deep_classifier
 
     def _analyze_rider_head(
         self, frame: np.ndarray, bbox: tuple[int, int, int, int]
-    ) -> str:
+    ) -> Tuple[str, Dict[str, float]]:
         """
-        Analyze head region using HSV color & texture distribution.
-        Returns: 'no_helmet', 'helmet', or OUTCOME_UNCERTAIN.
+        Analyze head region using DeepHelmetCNN and texture/color distribution.
+        Returns (status, probabilities_dict).
         """
         rx1, ry1, rx2, ry2 = bbox
         rw = rx2 - rx1
         rh = ry2 - ry1
+        default_probs = {"helmet": 0.33, "no_helmet": 0.33, "uncertain": 0.34}
         if rw < 15 or rh < 25:
-            return OUTCOME_UNCERTAIN
+            return OUTCOME_UNCERTAIN, default_probs
 
-        head_h = max(int(rh * 0.22), 8)
+        head_h = max(int(rh * 0.24), 8)
         head_y2 = min(frame.shape[0], ry1 + head_h)
         head_x1 = max(0, rx1)
         head_x2 = min(frame.shape[1], rx2)
         head_crop = frame[max(0, ry1):head_y2, head_x1:head_x2]
 
         if head_crop.shape[0] < 8 or head_crop.shape[1] < 8:
-            return OUTCOME_UNCERTAIN
+            return OUTCOME_UNCERTAIN, default_probs
 
+        # 1. Deep Learning CNN Classification
+        try:
+            clf = self._get_deep_classifier()
+            deep_label, deep_conf, probs = clf.classify_crop(head_crop)
+        except Exception as e:
+            logger.warning(f"Deep helmet classifier error: {e}")
+            deep_label, deep_conf, probs = OUTCOME_UNCERTAIN, 0.33, default_probs
+
+        # 2. Heuristic validation (skin/hair exposure)
         try:
             hsv = cv2.cvtColor(head_crop, cv2.COLOR_BGR2HSV)
-            # Skin tone masks (lower and upper hue regions)
             skin1 = cv2.inRange(hsv, np.array([0, 30, 60], dtype=np.uint8), np.array([25, 255, 255], dtype=np.uint8))
             skin2 = cv2.inRange(hsv, np.array([170, 30, 60], dtype=np.uint8), np.array([180, 255, 255], dtype=np.uint8))
             skin_mask = cv2.bitwise_or(skin1, skin2)
-
-            # Dark hair mask
             hair_mask = cv2.inRange(hsv, np.array([0, 0, 0], dtype=np.uint8), np.array([180, 110, 50], dtype=np.uint8))
 
             total_pixels = head_crop.shape[0] * head_crop.shape[1]
-            skin_ratio = cv2.countNonZero(skin_mask) / max(total_pixels, 1)
-            hair_ratio = cv2.countNonZero(hair_mask) / max(total_pixels, 1)
+            exposure_ratio = (cv2.countNonZero(skin_mask) + cv2.countNonZero(hair_mask)) / max(total_pixels, 1)
 
-            gray_head = cv2.cvtColor(head_crop, cv2.COLOR_BGR2GRAY)
-            std_dev = float(np.std(gray_head))
-
-            # Bare face/hair exposed: high skin+hair and texture variation
-            if (skin_ratio + hair_ratio) > 0.42 and std_dev > 15.0:
-                return "no_helmet"
-            elif (skin_ratio + hair_ratio) < 0.18 and std_dev < 32.0:
-                return "helmet"
+            # Ensemble deep CNN with physical exposure
+            if exposure_ratio > 0.40 and (deep_label == "no_helmet" or deep_conf < 0.6):
+                return "no_helmet", probs
+            elif exposure_ratio < 0.20 and (deep_label == "helmet" or deep_conf < 0.6):
+                return "helmet", probs
+            elif deep_conf >= 0.65:
+                return deep_label, probs
             else:
-                return OUTCOME_UNCERTAIN
+                return OUTCOME_UNCERTAIN, probs
         except Exception:
-            return OUTCOME_UNCERTAIN
+            return deep_label, probs
 
     def update(
         self,
@@ -161,8 +172,12 @@ class HelmetViolationAnalyzer:
             else:
                 ev.uncertain_frames += 1
         elif frame is not None and rider_tracks:
-            # Computer vision head-region heuristic
-            statuses = [self._analyze_rider_head(frame, r.bbox) for r in rider_tracks]
+            # Deep Learning CNN + Computer vision head-region ensemble
+            analyzed = [self._analyze_rider_head(frame, r.bbox) for r in rider_tracks]
+            statuses = [a[0] for a in analyzed]
+            for a in analyzed:
+                ev.deep_predictions.append(a[1])
+
             if any(s == "no_helmet" for s in statuses):
                 ev.no_helmet_frames += 1
             elif all(s == "helmet" for s in statuses):
@@ -196,6 +211,14 @@ class HelmetViolationAnalyzer:
             outcome = OUTCOME_UNCERTAIN
             confidence = 0.35
 
+        avg_deep = {}
+        if ev.deep_predictions:
+            avg_deep = {
+                "helmet": round(float(np.mean([p.get("helmet", 0.0) for p in ev.deep_predictions])), 3),
+                "no_helmet": round(float(np.mean([p.get("no_helmet", 0.0) for p in ev.deep_predictions])), 3),
+                "uncertain": round(float(np.mean([p.get("uncertain", 0.0) for p in ev.deep_predictions])), 3),
+            }
+
         return HelmetAnalysisResult(
             moto_track_id=ev.moto_track_id,
             rider_track_ids=list(ev.rider_track_ids),
@@ -207,6 +230,8 @@ class HelmetViolationAnalyzer:
                 "helmet_frames": ev.helmet_frames,
                 "uncertain_frames": ev.uncertain_frames,
                 "custom_model_used": bool(HELMET_ABSENT_CLASSES),
+                "deep_model": "DeepHelmetCNN-SE",
+                "deep_probabilities": avg_deep,
             },
         )
 

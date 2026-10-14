@@ -100,3 +100,8 @@ export const getSettings = () => api.get('/settings/').then(r => r.data)
 export const updateSettings = (data: Record<string, unknown>) =>
   api.patch('/settings/', data).then(r => r.data)
 export const getModelInfo = () => api.get('/settings/model-info').then(r => r.data)
+
+// Deep Learning Models Registry & Benchmark
+export const getModelsInfo = () => api.get('/models/info').then(r => r.data)
+export const runModelsBenchmark = (iterations: number = 10) =>
+  api.post('/models/benchmark', { iterations }).then(r => r.data)

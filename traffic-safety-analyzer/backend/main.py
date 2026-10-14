@@ -27,6 +27,7 @@ from backend.api.incident_routes import router as incident_router
 from backend.api.dashboard_routes import router as dashboard_router
 from backend.api.evaluation_routes import router as evaluation_router
 from backend.api.settings_routes import router as settings_router
+from backend.api.models_routes import router as models_router
 from backend.api.ws_routes import router as ws_router
 
 
@@ -87,6 +88,7 @@ app.include_router(incident_router,   prefix="/api/v1")
 app.include_router(dashboard_router,  prefix="/api/v1")
 app.include_router(evaluation_router, prefix="/api/v1")
 app.include_router(settings_router,   prefix="/api/v1")
+app.include_router(models_router)
 
 
 @app.get("/")
