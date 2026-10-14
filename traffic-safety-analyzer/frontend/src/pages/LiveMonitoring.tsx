@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   Play, Square, Camera, Video, AlertTriangle, Car, Bike, Bus, Truck, Users, Activity,
-  Upload, Film, Image as ImageIcon, Trash2, Download, X, Clock, Disc
+  Upload, Film, Image as ImageIcon, Trash2, Download, X, Clock, Disc,
+  Maximize2, Minimize2, Volume2, VolumeX
 } from 'lucide-react'
 import {
   startMonitoring, stopMonitoring, getMonitoringStatus, getLatestFrame, configureCamera,
@@ -144,6 +145,47 @@ export default function LiveMonitoring() {
     return () => { if (recTimerRef.current) clearInterval(recTimerRef.current) }
   }, [isRecording])
 
+  // Fullscreen and Audio alerts
+  const [soundEnabled, setSoundEnabled] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const videoContainerRef = useRef<HTMLDivElement | null>(null)
+
+  const playViolationChime = useCallback(() => {
+    if (!soundEnabled) return
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new AudioCtx()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(880, ctx.currentTime)
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.22)
+      gain.gain.setValueAtTime(0.18, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.23)
+    } catch { /* audio not allowed yet or unsupported */ }
+  }, [soundEnabled])
+
+  const toggleFullscreen = () => {
+    if (!videoContainerRef.current) return
+    if (!document.fullscreenElement) {
+      videoContainerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {})
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {})
+    }
+  }
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFsChange)
+    return () => document.removeEventListener('fullscreenchange', handleFsChange)
+  }, [])
+
   useWebSocket(
     useCallback((data: Record<string, unknown>) => {
       const ev = data as unknown as WsEvent
@@ -151,8 +193,9 @@ export default function LiveMonitoring() {
         setMetrics(ev.metrics)
       } else if (ev.type === 'new_incident') {
         setAlerts(prev => [ev, ...prev].slice(0, 10))
+        playViolationChime()
       }
-    }, []),
+    }, [playViolationChime]),
     running
   )
 
@@ -416,7 +459,10 @@ export default function LiveMonitoring() {
           </div>
 
           {/* Video Frame Canvas */}
-          <div className="relative bg-black rounded-lg overflow-hidden aspect-video flex items-center justify-center border border-gray-800">
+          <div
+            ref={videoContainerRef}
+            className="relative bg-black rounded-lg overflow-hidden aspect-video flex items-center justify-center border border-gray-800"
+          >
             {frame ? (
               <img
                 src={`data:image/jpeg;base64,${frame}`}
@@ -442,15 +488,36 @@ export default function LiveMonitoring() {
                 REC {formatSecs(recSeconds)}
               </div>
             )}
-            {running && metrics.traffic_density && (
-              <div className="absolute top-3 right-3 bg-gray-900/80 border border-gray-700 rounded-md px-2.5 py-0.5 text-xs text-gray-200">
-                Traffic: <span className={
-                  metrics.traffic_density === 'Light' ? 'text-green-400 font-bold'
-                  : metrics.traffic_density === 'Moderate' ? 'text-yellow-400 font-bold'
-                  : 'text-red-400 font-bold'
-                }>{metrics.traffic_density}</span>
-              </div>
-            )}
+            {/* Top Right Floating Toolbar (Traffic, Audio Alert Toggle, Fullscreen) */}
+            <div className="absolute top-3 right-3 flex items-center gap-2">
+              {running && metrics.traffic_density && (
+                <div className="bg-gray-900/80 border border-gray-700 rounded-md px-2.5 py-0.5 text-xs text-gray-200">
+                  Traffic: <span className={
+                    metrics.traffic_density === 'Light' ? 'text-green-400 font-bold'
+                    : metrics.traffic_density === 'Moderate' ? 'text-yellow-400 font-bold'
+                    : 'text-red-400 font-bold'
+                  }>{metrics.traffic_density}</span>
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  const next = !soundEnabled
+                  setSoundEnabled(next)
+                  showToastMsg(next ? 'Violation audio alerts enabled.' : 'Violation audio alerts muted.')
+                }}
+                className="bg-gray-900/80 hover:bg-gray-850 border border-gray-700 rounded-md p-1.5 text-xs transition-colors"
+                title={soundEnabled ? 'Mute violation audio alerts' : 'Enable violation audio alerts'}
+              >
+                {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-green-400" /> : <VolumeX className="w-3.5 h-3.5 text-gray-400" />}
+              </button>
+              <button
+                onClick={toggleFullscreen}
+                className="bg-gray-900/80 hover:bg-gray-850 border border-gray-700 rounded-md p-1.5 text-xs text-gray-300 hover:text-white transition-colors"
+                title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Video Feed'}
+              >
+                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
 
           {/* Live Performance Bar */}
@@ -503,10 +570,21 @@ export default function LiveMonitoring() {
 
         {/* Live Alerts & Incident Log Panel */}
         <div className="card space-y-3 flex flex-col">
-          <h2 className="font-semibold text-white flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-orange-400" />
-            Safety Alerts & Violations
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-white flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-orange-400" />
+              Safety Alerts & Violations
+            </h2>
+            {alerts.length > 0 && (
+              <button
+                onClick={() => setAlerts([])}
+                className="text-[11px] text-gray-500 hover:text-gray-300 underline"
+                title="Clear alerts list"
+              >
+                Clear
+              </button>
+            )}
+          </div>
           {alerts.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-600 text-sm p-6 text-center">
               <AlertTriangle className="w-8 h-8 opacity-20 mb-2" />

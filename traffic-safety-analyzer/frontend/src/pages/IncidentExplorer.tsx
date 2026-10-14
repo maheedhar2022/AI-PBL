@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Search, Filter, ChevronLeft, ChevronRight,
-  Trash2, Download, FileSpreadsheet, FileText, Check, X, CheckSquare, Square
+  Trash2, Download, FileSpreadsheet, FileText, Check, X, CheckSquare, Square,
+  Maximize2, Eye, Keyboard
 } from 'lucide-react'
 import {
   listIncidents, reviewIncident, deleteIncident, exportIncidents,
@@ -26,11 +28,12 @@ interface Incident {
 }
 
 export default function IncidentExplorer() {
+  const [searchParams] = useSearchParams()
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [filterType, setFilterType] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
+  const [filterType, setFilterType] = useState(searchParams.get('type') || '')
+  const [filterStatus, setFilterStatus] = useState(searchParams.get('status') || '')
   const [searchQuery, setSearchQuery] = useState('')
   const [selected, setSelected] = useState<Incident | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -38,7 +41,16 @@ export default function IncidentExplorer() {
   const [loading, setLoading] = useState(false)
   const [batchLoading, setBatchLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [lightboxImg, setLightboxImg] = useState<{ src: string; caption: string } | null>(null)
+
   const PAGE_SIZE = 15
+
+  useEffect(() => {
+    const s = searchParams.get('status')
+    const t = searchParams.get('type')
+    if (s !== null) { setFilterStatus(s); setPage(1) }
+    if (t !== null) { setFilterType(t); setPage(1) }
+  }, [searchParams])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -139,16 +151,53 @@ export default function IncidentExplorer() {
     )
   })
 
+  // Keyboard navigation and rapid review shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      if (e.key === 'c' || e.key === 'C') {
+        if (selected) handleReview(selected.id, 'confirmed')
+      } else if (e.key === 'd' || e.key === 'D') {
+        if (selected) handleReview(selected.id, 'dismissed')
+      } else if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault()
+        const idx = filteredIncidents.findIndex(i => i.id === selected?.id)
+        if (idx < filteredIncidents.length - 1) {
+          setSelected(filteredIncidents[idx + 1])
+        } else if (filteredIncidents.length > 0 && !selected) {
+          setSelected(filteredIncidents[0])
+        }
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault()
+        const idx = filteredIncidents.findIndex(i => i.id === selected?.id)
+        if (idx > 0) {
+          setSelected(filteredIncidents[idx - 1])
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selected, filteredIncidents])
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
-    <div className="p-6 h-full flex flex-col gap-4">
+    <div className="p-6 h-full flex flex-col gap-3">
+      {/* Header & Quick Action Buttons */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Incident Explorer & Review Audit</h1>
           <p className="text-gray-400 text-sm">{total} potential violations recorded across all sources</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Keyboard shortcut hint pill */}
+          <div className="hidden sm:flex items-center gap-1.5 bg-gray-900 border border-gray-800 text-[11px] text-gray-400 rounded-lg px-2.5 py-1.5 shadow-sm">
+            <Keyboard className="w-3.5 h-3.5 text-blue-400" />
+            <span>Shortcuts: <kbd className="bg-gray-800 px-1 rounded text-gray-200">C</kbd> Confirm • <kbd className="bg-gray-800 px-1 rounded text-gray-200">D</kbd> Dismiss • <kbd className="bg-gray-800 px-1 rounded text-gray-200">↑/↓</kbd> Move</span>
+          </div>
+
           <button
             onClick={() => handleExport('csv')}
             disabled={exporting || total === 0}
@@ -168,7 +217,73 @@ export default function IncidentExplorer() {
         </div>
       </div>
 
-      {/* Filters & Search */}
+      {/* Quick Filter One-Click Pills */}
+      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+        <span className="text-gray-500 font-medium mr-1">Filter:</span>
+        <button
+          onClick={() => { setFilterStatus(''); setFilterType(''); setPage(1) }}
+          className={`px-3 py-1 rounded-lg border transition-colors ${
+            !filterStatus && !filterType
+              ? 'bg-blue-600 text-white border-blue-500 font-medium'
+              : 'bg-gray-800 border-gray-750 text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          All ({total})
+        </button>
+        <button
+          onClick={() => { setFilterStatus('pending'); setPage(1) }}
+          className={`px-3 py-1 rounded-lg border transition-colors ${
+            filterStatus === 'pending'
+              ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500 font-medium'
+              : 'bg-gray-800 border-gray-750 text-gray-400 hover:text-yellow-300'
+          }`}
+        >
+          ⚠️ Pending Review
+        </button>
+        <button
+          onClick={() => { setFilterStatus('confirmed'); setPage(1) }}
+          className={`px-3 py-1 rounded-lg border transition-colors ${
+            filterStatus === 'confirmed'
+              ? 'bg-green-500/20 text-green-300 border-green-500 font-medium'
+              : 'bg-gray-800 border-gray-750 text-gray-400 hover:text-green-300'
+          }`}
+        >
+          ✓ Confirmed
+        </button>
+        <button
+          onClick={() => { setFilterStatus('dismissed'); setPage(1) }}
+          className={`px-3 py-1 rounded-lg border transition-colors ${
+            filterStatus === 'dismissed'
+              ? 'bg-gray-700 text-gray-200 border-gray-600 font-medium'
+              : 'bg-gray-800 border-gray-750 text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          ✕ Dismissed
+        </button>
+        <div className="h-4 w-px bg-gray-800 mx-1" />
+        <button
+          onClick={() => { setFilterType(filterType === 'helmet_violation' ? '' : 'helmet_violation'); setPage(1) }}
+          className={`px-3 py-1 rounded-lg border transition-colors ${
+            filterType === 'helmet_violation'
+              ? 'bg-red-500/20 text-red-300 border-red-500 font-medium'
+              : 'bg-gray-800 border-gray-750 text-gray-400 hover:text-red-300'
+          }`}
+        >
+          🪖 Helmet
+        </button>
+        <button
+          onClick={() => { setFilterType(filterType === 'triple_riding' ? '' : 'triple_riding'); setPage(1) }}
+          className={`px-3 py-1 rounded-lg border transition-colors ${
+            filterType === 'triple_riding'
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500 font-medium'
+              : 'bg-gray-800 border-gray-750 text-gray-400 hover:text-amber-300'
+          }`}
+        >
+          🏍️ Triple Riding
+        </button>
+      </div>
+
+      {/* Search Bar */}
       <div className="flex gap-3 flex-wrap items-center">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
@@ -180,25 +295,6 @@ export default function IncidentExplorer() {
             className="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm placeholder-gray-500"
           />
         </div>
-        <select
-          value={filterType}
-          onChange={e => { setFilterType(e.target.value); setPage(1) }}
-          className="bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm"
-        >
-          <option value="">All Violation Types</option>
-          <option value="helmet_violation">Helmet Violation</option>
-          <option value="triple_riding">Triple Riding</option>
-        </select>
-        <select
-          value={filterStatus}
-          onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
-          className="bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-3 py-2 text-sm"
-        >
-          <option value="">All Review Statuses</option>
-          <option value="pending">Pending</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="dismissed">Dismissed</option>
-        </select>
       </div>
 
       {/* Bulk Action Toolbar */}
@@ -273,12 +369,13 @@ export default function IncidentExplorer() {
               <tbody>
                 {filteredIncidents.map(inc => {
                   const isChecked = selectedIds.includes(inc.id)
+                  const isSelected = selected?.id === inc.id
                   return (
                     <tr
                       key={inc.id}
                       onClick={() => setSelected(inc)}
                       className={`border-b border-gray-800/80 cursor-pointer hover:bg-gray-800/70 transition-colors ${
-                        selected?.id === inc.id ? 'bg-gray-800' : isChecked ? 'bg-blue-950/20' : ''
+                        isSelected ? 'bg-blue-900/30 border-blue-700' : isChecked ? 'bg-blue-950/20' : ''
                       }`}
                     >
                       <td className="py-2.5 w-8 text-center" onClick={(e) => handleToggleSelect(inc.id, e)}>
@@ -354,6 +451,7 @@ export default function IncidentExplorer() {
             <div className="text-gray-600 text-sm flex flex-col items-center justify-center h-full gap-2">
               <Search className="w-8 h-8 opacity-30" />
               <span>Select an incident to view details</span>
+              <span className="text-xs text-gray-700">Use arrow keys or click any row.</span>
             </div>
           ) : (
             <div className="space-y-4">
@@ -374,16 +472,37 @@ export default function IncidentExplorer() {
                 )}
               </div>
 
-              {/* Evidence Image */}
+              {/* Evidence Image with Zoom click */}
               {selected.evidence_image_path && (
                 <div className="space-y-1">
-                  <div className="text-xs text-gray-500 font-medium">Evidence Frame Crop</div>
-                  <img
-                    src={`/evidence/${selected.evidence_image_path.replace(/\\/g, '/').split('/').pop()}`}
-                    alt="Evidence"
-                    className="w-full rounded-lg border border-gray-700 max-h-48 object-cover bg-black"
-                    onError={(e) => (e.currentTarget.style.display = 'none')}
-                  />
+                  <div className="flex items-center justify-between text-xs text-gray-500 font-medium">
+                    <span>Evidence Frame Crop</span>
+                    <span className="text-[10px] text-blue-400 flex items-center gap-1">
+                      <Eye className="w-3 h-3" /> Click to enlarge
+                    </span>
+                  </div>
+                  <div
+                    onClick={() => {
+                      const imgName = selected.evidence_image_path?.replace(/\\/g, '/').split('/').pop()
+                      if (imgName) {
+                        setLightboxImg({
+                          src: `/evidence/${imgName}`,
+                          caption: `Incident #${selected.track_id ?? ''} • ${selected.violation_type.replace('_', ' ')} • ${(selected.confidence * 100).toFixed(0)}% confidence`,
+                        })
+                      }
+                    }}
+                    className="relative cursor-pointer group rounded-lg overflow-hidden border border-gray-700"
+                  >
+                    <img
+                      src={`/evidence/${selected.evidence_image_path.replace(/\\/g, '/').split('/').pop()}`}
+                      alt="Evidence"
+                      className="w-full max-h-48 object-cover bg-black group-hover:scale-105 transition-transform"
+                      onError={(e) => (e.currentTarget.style.display = 'none')}
+                    />
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                      <Maximize2 className="w-6 h-6 text-white drop-shadow" />
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -402,14 +521,16 @@ export default function IncidentExplorer() {
                   <button
                     onClick={() => handleReview(selected.id, 'confirmed')}
                     className="btn-danger text-xs py-1.5 flex-1 flex items-center justify-center gap-1"
+                    title="Confirm violation (Press C)"
                   >
-                    <Check className="w-3.5 h-3.5" /> Confirm Violation
+                    <Check className="w-3.5 h-3.5" /> Confirm [C]
                   </button>
                   <button
                     onClick={() => handleReview(selected.id, 'dismissed')}
                     className="btn-secondary text-xs py-1.5 flex-1 flex items-center justify-center gap-1"
+                    title="Dismiss violation (Press D)"
                   >
-                    <X className="w-3.5 h-3.5" /> Dismiss
+                    <X className="w-3.5 h-3.5" /> Dismiss [D]
                   </button>
                 </div>
               </div>
@@ -417,6 +538,31 @@ export default function IncidentExplorer() {
           )}
         </div>
       </div>
+
+      {/* Lightbox Modal */}
+      {lightboxImg && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex flex-col items-center justify-center p-4 backdrop-blur-sm"
+          onClick={() => setLightboxImg(null)}
+        >
+          <div className="relative max-w-4xl max-h-[85vh] flex flex-col items-center" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setLightboxImg(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 p-1"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img
+              src={lightboxImg.src}
+              alt="Enlarged evidence"
+              className="max-w-full max-h-[75vh] rounded-xl object-contain border border-gray-700 shadow-2xl bg-black"
+            />
+            <div className="mt-3 text-sm text-gray-300 font-medium text-center bg-gray-900/90 px-4 py-2 rounded-lg border border-gray-800">
+              {lightboxImg.caption}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle, Video, Clock, CheckSquare,
-  Activity, RefreshCw, BarChart3, PieChart as PieIcon, Shield
+  Activity, RefreshCw, BarChart3, PieChart as PieIcon, Shield, Settings, ArrowRight
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -45,10 +46,12 @@ interface AnalyticsData {
 }
 
 export default function Overview() {
+  const navigate = useNavigate()
   const [stats, setStats] = useState<Stats | null>(null)
   const [recent, setRecent] = useState<RecentIncident[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [autoRefresh, setAutoRefresh] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -71,9 +74,10 @@ export default function Overview() {
 
   useEffect(() => {
     load()
+    if (!autoRefresh) return
     const timer = setInterval(load, 8000)
     return () => clearInterval(timer)
-  }, [load])
+  }, [load, autoRefresh])
 
   const violationBadge = (type: string) =>
     type === 'helmet_violation'
@@ -81,55 +85,102 @@ export default function Overview() {
       : <span className="badge badge-triple">Triple Riding</span>
 
   const hasTimeline = analytics && analytics.timeline && analytics.timeline.length > 0
-  const hasViolations = analytics && analytics.violation_distribution.some(v => v.value > 0)
   const hasReviews = analytics && analytics.review_distribution.some(r => r.value > 0)
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Overview & Traffic Safety Analytics</h1>
           <p className="text-gray-400 text-sm mt-0.5">Live monitoring telemetry, incident distribution, and violation audit trail</p>
         </div>
-        <button onClick={load} className="btn-secondary flex items-center gap-2 text-sm">
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAutoRefresh(r => !r)}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              autoRefresh ? 'bg-green-950/40 border-green-800 text-green-300' : 'bg-gray-800 border-gray-750 text-gray-400'
+            }`}
+          >
+            {autoRefresh ? '● Live Refreshing (8s)' : 'Paused'}
+          </button>
+          <button onClick={load} className="btn-secondary flex items-center gap-1.5 text-xs py-1.5 px-3">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-300 text-sm">
+        <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 text-red-300 text-sm">
           {error}
         </div>
       )}
 
-      {/* Stat Cards */}
+      {/* Interactive Clickable Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={<AlertTriangle className="w-5 h-5 text-orange-400" />}
           label="Total Incidents"
           value={stats?.total_incidents ?? '—'}
           sub="recorded events"
+          onClick={() => navigate('/incidents')}
         />
         <StatCard
           icon={<Shield className="w-5 h-5 text-red-400" />}
           label="Helmet Violations"
           value={stats?.helmet_incidents ?? '—'}
           sub="potential violations"
+          onClick={() => navigate('/incidents?type=helmet_violation')}
         />
         <StatCard
           icon={<Video className="w-5 h-5 text-purple-400" />}
           label="Triple Riding"
           value={stats?.triple_riding_incidents ?? '—'}
           sub="potential violations"
+          onClick={() => navigate('/incidents?type=triple_riding')}
         />
         <StatCard
           icon={<CheckSquare className="w-5 h-5 text-yellow-400" />}
           label="Pending Review"
           value={stats?.pending_review ?? '—'}
           sub="awaiting review"
+          onClick={() => navigate('/incidents?status=pending')}
+          highlight={stats ? stats.pending_review > 0 : false}
         />
+      </div>
+
+      {/* Quick Action Navigation Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-900 border border-gray-800 p-3 rounded-xl text-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-gray-400 font-medium">Quick Navigation:</span>
+          <button
+            onClick={() => navigate('/monitoring')}
+            className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-colors ${
+              stats?.pipeline_running
+                ? 'bg-green-600/20 border-green-500/50 text-green-300 hover:bg-green-600/30'
+                : 'bg-blue-600/20 border-blue-500/50 text-blue-300 hover:bg-blue-600/30'
+            }`}
+          >
+            <Video className="w-3.5 h-3.5" />
+            {stats?.pipeline_running ? 'Go to Active Feed ●' : 'Launch CCTV Monitoring'}
+          </button>
+          <button
+            onClick={() => navigate('/incidents?status=pending')}
+            className="px-3 py-1.5 rounded-lg bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 hover:bg-yellow-600/30 font-medium flex items-center gap-1.5 transition-colors"
+          >
+            <CheckSquare className="w-3.5 h-3.5 text-yellow-400" />
+            Review Queue ({stats?.pending_review ?? 0})
+          </button>
+          <button
+            onClick={() => navigate('/settings')}
+            className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-750 text-gray-300 hover:bg-gray-750 font-medium flex items-center gap-1.5 transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5 text-purple-400" /> Adjust Sensitivity
+          </button>
+        </div>
+        <div className="text-xs text-gray-500">
+          Tip: Click any stat card above to filter incidents directly.
+        </div>
       </div>
 
       {/* Analytics Charts Section */}
@@ -142,7 +193,7 @@ export default function Overview() {
           </h2>
           {hasTimeline ? (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={analytics.timeline}>
+              <BarChart data={analytics?.timeline}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
@@ -224,10 +275,18 @@ export default function Overview() {
 
         {/* Recent Activity */}
         <div className="card">
-          <h2 className="font-semibold text-white mb-3 flex items-center gap-2">
-            <Activity className="w-4 h-4 text-cyan-400" />
-            Recent Incidents Audit Log
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-white flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" />
+              Recent Incidents Audit Log
+            </h2>
+            <button
+              onClick={() => navigate('/incidents')}
+              className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+            >
+              View all <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
           {loading ? (
             <div className="text-gray-500 text-sm">Loading…</div>
           ) : recent.length === 0 ? (
@@ -235,7 +294,11 @@ export default function Overview() {
           ) : (
             <div className="space-y-2">
               {recent.map(inc => (
-                <div key={inc.id} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
+                <div
+                  key={inc.id}
+                  onClick={() => navigate(`/incidents`)}
+                  className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0 hover:bg-gray-800/40 rounded px-2 cursor-pointer transition-colors"
+                >
                   <div className="flex items-center gap-2">
                     {violationBadge(inc.violation_type)}
                     <span className="text-gray-400 text-xs">
@@ -258,20 +321,30 @@ export default function Overview() {
   )
 }
 
-function StatCard({ icon, label, value, sub }: {
+function StatCard({ icon, label, value, sub, onClick, highlight }: {
   icon: React.ReactNode
   label: string
   value: number | string
   sub: string
+  onClick?: () => void
+  highlight?: boolean
 }) {
   return (
-    <div className="stat-card">
+    <div
+      onClick={onClick}
+      className={`stat-card transition-all ${
+        onClick ? 'cursor-pointer hover:border-blue-600/70 hover:bg-gray-850 hover:shadow-lg' : ''
+      } ${highlight ? 'border-yellow-600/40' : ''}`}
+    >
       <div className="flex items-center gap-2 text-gray-400 text-sm">
         {icon}
         <span>{label}</span>
       </div>
       <div className="text-3xl font-bold text-white">{value}</div>
-      <div className="text-gray-600 text-xs">{sub}</div>
+      <div className="text-gray-500 text-xs flex items-center justify-between mt-1">
+        <span>{sub}</span>
+        {onClick && <span className="text-[10px] text-blue-400 font-medium">View →</span>}
+      </div>
     </div>
   )
 }
