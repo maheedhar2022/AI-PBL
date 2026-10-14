@@ -1,9 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Search, Filter, ChevronLeft, ChevronRight,
-  Trash2, Download, FileSpreadsheet, FileText, Check, X
+  Trash2, Download, FileSpreadsheet, FileText, Check, X, CheckSquare, Square
 } from 'lucide-react'
-import { listIncidents, reviewIncident, deleteIncident, exportIncidents } from '../services/api'
+import {
+  listIncidents, reviewIncident, deleteIncident, exportIncidents,
+  batchReviewIncidents, bulkDeleteIncidents
+} from '../services/api'
 import { format } from 'date-fns'
 
 interface Incident {
@@ -30,8 +33,10 @@ export default function IncidentExplorer() {
   const [filterStatus, setFilterStatus] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selected, setSelected] = useState<Incident | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [reviewerNotes, setReviewerNotes] = useState('')
   const [loading, setLoading] = useState(false)
+  const [batchLoading, setBatchLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const PAGE_SIZE = 15
 
@@ -83,6 +88,45 @@ export default function IncidentExplorer() {
       })
     } catch { /* ignore */ }
     setExporting(false)
+  }
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.length === filteredIncidents.length && filteredIncidents.length > 0) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(filteredIncidents.map(i => i.id))
+    }
+  }
+
+  const handleToggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const handleBatchReview = async (status: string) => {
+    if (selectedIds.length === 0) return
+    setBatchLoading(true)
+    try {
+      await batchReviewIncidents(selectedIds, status, reviewerNotes || undefined)
+      setSelectedIds([])
+      await load()
+    } catch { /* ignore */ }
+    setBatchLoading(false)
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return
+    if (!confirm(`Permanently delete ${selectedIds.length} selected incidents?`)) return
+    setBatchLoading(true)
+    try {
+      await bulkDeleteIncidents(selectedIds)
+      setSelectedIds([])
+      if (selected && selectedIds.includes(selected.id)) setSelected(null)
+      await load()
+    } catch { /* ignore */ }
+    setBatchLoading(false)
   }
 
   const filteredIncidents = incidents.filter(inc => {
@@ -157,6 +201,45 @@ export default function IncidentExplorer() {
         </select>
       </div>
 
+      {/* Bulk Action Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="bg-blue-950/40 border border-blue-800/80 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-2 text-sm text-blue-200">
+            <CheckSquare className="w-4 h-4 text-blue-400" />
+            <span className="font-semibold">{selectedIds.length}</span> incident{selectedIds.length > 1 ? 's' : ''} selected
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleBatchReview('confirmed')}
+              disabled={batchLoading}
+              className="btn-danger text-xs py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Check className="w-3.5 h-3.5" /> Bulk Confirm
+            </button>
+            <button
+              onClick={() => handleBatchReview('dismissed')}
+              disabled={batchLoading}
+              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <X className="w-3.5 h-3.5" /> Bulk Dismiss
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={batchLoading}
+              className="bg-red-900/60 hover:bg-red-800 text-red-200 border border-red-700 rounded-lg text-xs py-1.5 px-3 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Bulk Delete
+            </button>
+            <button
+              onClick={() => setSelectedIds([])}
+              className="text-xs text-gray-400 hover:text-gray-200 underline ml-2"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Incident List */}
         <div className="flex-1 card overflow-y-auto">
@@ -170,6 +253,15 @@ export default function IncidentExplorer() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-500 text-xs border-b border-gray-800">
+                  <th className="w-8 py-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length === filteredIncidents.length && filteredIncidents.length > 0}
+                      onChange={handleToggleSelectAll}
+                      className="rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-0 cursor-pointer"
+                      title="Select all visible incidents"
+                    />
+                  </th>
                   <th className="text-left py-2 font-medium">Type</th>
                   <th className="text-left py-2 font-medium">Track ID</th>
                   <th className="text-left py-2 font-medium">Timestamp</th>
@@ -179,44 +271,57 @@ export default function IncidentExplorer() {
                 </tr>
               </thead>
               <tbody>
-                {filteredIncidents.map(inc => (
-                  <tr
-                    key={inc.id}
-                    onClick={() => setSelected(inc)}
-                    className={`border-b border-gray-800/80 cursor-pointer hover:bg-gray-800/70 transition-colors ${selected?.id === inc.id ? 'bg-gray-800' : ''}`}
-                  >
-                    <td className="py-2.5">
-                      {inc.violation_type === 'helmet_violation'
-                        ? <span className="badge-helmet">Helmet</span>
-                        : <span className="badge badge-triple">Triple</span>}
-                    </td>
-                    <td className="py-2.5 font-mono text-xs text-yellow-400">
-                      {inc.track_id !== null ? `#${inc.track_id}` : '—'}
-                    </td>
-                    <td className="py-2.5 text-gray-400 text-xs">
-                      {format(new Date(inc.event_timestamp), 'MMM d, HH:mm:ss')}
-                    </td>
-                    <td className="py-2.5 text-gray-300 font-mono text-xs">
-                      {(inc.confidence * 100).toFixed(0)}%
-                    </td>
-                    <td className="py-2.5">
-                      <span className={`badge text-xs ${
-                        inc.review_status === 'pending' ? 'badge-pending' :
-                        inc.review_status === 'confirmed' ? 'badge-confirmed' :
-                        'bg-gray-800 text-gray-400'
-                      }`}>{inc.review_status}</span>
-                    </td>
-                    <td className="py-2.5 text-right">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(inc.id) }}
-                        className="text-gray-600 hover:text-red-400 transition-colors p-1"
-                        title="Delete incident"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredIncidents.map(inc => {
+                  const isChecked = selectedIds.includes(inc.id)
+                  return (
+                    <tr
+                      key={inc.id}
+                      onClick={() => setSelected(inc)}
+                      className={`border-b border-gray-800/80 cursor-pointer hover:bg-gray-800/70 transition-colors ${
+                        selected?.id === inc.id ? 'bg-gray-800' : isChecked ? 'bg-blue-950/20' : ''
+                      }`}
+                    >
+                      <td className="py-2.5 w-8 text-center" onClick={(e) => handleToggleSelect(inc.id, e)}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          className="rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-0 cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-2.5">
+                        {inc.violation_type === 'helmet_violation'
+                          ? <span className="badge-helmet">Helmet</span>
+                          : <span className="badge badge-triple">Triple</span>}
+                      </td>
+                      <td className="py-2.5 font-mono text-xs text-yellow-400">
+                        {inc.track_id !== null ? `#${inc.track_id}` : '—'}
+                      </td>
+                      <td className="py-2.5 text-gray-400 text-xs">
+                        {format(new Date(inc.event_timestamp), 'MMM d, HH:mm:ss')}
+                      </td>
+                      <td className="py-2.5 text-gray-300 font-mono text-xs">
+                        {(inc.confidence * 100).toFixed(0)}%
+                      </td>
+                      <td className="py-2.5">
+                        <span className={`badge text-xs ${
+                          inc.review_status === 'pending' ? 'badge-pending' :
+                          inc.review_status === 'confirmed' ? 'badge-confirmed' :
+                          'bg-gray-800 text-gray-400'
+                        }`}>{inc.review_status}</span>
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDelete(inc.id) }}
+                          className="text-gray-600 hover:text-red-400 transition-colors p-1"
+                          title="Delete incident"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}

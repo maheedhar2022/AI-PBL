@@ -27,6 +27,7 @@ env/
 # Evidence images and recordings (local only)
 evidence/
 recordings/
+uploads/
 
 # Research data (never commit raw footage or private data)
 research/datasets/*/images/

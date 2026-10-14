@@ -15,12 +15,30 @@ export const getDashboardAnalytics = () => api.get('/dashboard/analytics').then(
 export const getCameraStatus = () => api.get('/camera/status').then(r => r.data)
 export const configureCamera = (source: string, fps_target = 10) =>
   api.post('/camera/configure', { source, fps_target }).then(r => r.data)
+export const uploadVideoFile = (file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post('/camera/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data)
+}
 
-// Monitoring
+// Monitoring & Evidence
 export const startMonitoring = () => api.post('/monitoring/start').then(r => r.data)
 export const stopMonitoring = () => api.post('/monitoring/stop').then(r => r.data)
 export const getMonitoringStatus = () => api.get('/monitoring/status').then(r => r.data)
 export const getLatestFrame = () => api.get('/monitoring/frame').then(r => r.data)
+
+export const startRecording = () => api.post('/monitoring/record/start').then(r => r.data)
+export const stopRecording = () => api.post('/monitoring/record/stop').then(r => r.data)
+export const listRecordings = () => api.get('/monitoring/recordings').then(r => r.data)
+export const deleteRecording = (filename: string) =>
+  api.delete(`/monitoring/recordings/${filename}`).then(r => r.data)
+
+export const takeSnapshot = () => api.post('/monitoring/snapshot').then(r => r.data)
+export const listSnapshots = () => api.get('/monitoring/snapshots').then(r => r.data)
+export const deleteSnapshot = (filename: string) =>
+  api.delete(`/monitoring/snapshots/${filename}`).then(r => r.data)
 
 // Incidents
 export interface IncidentFilters {
@@ -38,6 +56,10 @@ export const getIncident = (id: string) => api.get(`/incidents/${id}`).then(r =>
 export const reviewIncident = (id: string, status: string, notes?: string) =>
   api.patch(`/incidents/${id}/review`, { status, notes }).then(r => r.data)
 export const deleteIncident = (id: string) => api.delete(`/incidents/${id}`)
+export const batchReviewIncidents = (incidentIds: string[], status: string, notes?: string) =>
+  api.post('/incidents/batch-review', { incident_ids: incidentIds, status, notes }).then(r => r.data)
+export const bulkDeleteIncidents = (incidentIds: string[]) =>
+  api.post('/incidents/bulk-delete', { incident_ids: incidentIds }).then(r => r.data)
 
 export const exportIncidents = async (params: IncidentFilters & { format?: 'csv' | 'json' }) => {
   const format = params.format || 'csv'

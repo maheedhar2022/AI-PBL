@@ -11,7 +11,7 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.db import get_db
@@ -49,6 +49,25 @@ class IncidentListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class BatchReviewRequest(BaseModel):
+    incident_ids: List[str]
+    status: str   # "confirmed", "dismissed", or "pending"
+    notes: Optional[str] = None
+
+
+class BatchReviewResponse(BaseModel):
+    updated_count: int
+    status: str
+
+
+class BulkDeleteRequest(BaseModel):
+    incident_ids: List[str]
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted_count: int
 
 
 # ---------- Endpoints ----------
@@ -162,6 +181,54 @@ async def export_incidents(
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=incidents_export.csv"},
         )
+
+
+@router.post("/batch-review", response_model=BatchReviewResponse)
+async def batch_review_incidents(
+    body: BatchReviewRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    valid_statuses = {"confirmed", "dismissed", "pending"}
+    if body.status not in valid_statuses:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status. Choose from: {valid_statuses}",
+        )
+
+    if not body.incident_ids:
+        return BatchReviewResponse(updated_count=0, status=body.status)
+
+    values_to_update: dict = {"review_status": body.status}
+    if body.notes is not None:
+        values_to_update["reviewer_notes"] = body.notes
+
+    stmt = (
+        update(Incident)
+        .where(Incident.id.in_(body.incident_ids))
+        .values(**values_to_update)
+    )
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return BatchReviewResponse(
+        updated_count=result.rowcount or 0,
+        status=body.status,
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteResponse)
+async def bulk_delete_incidents(
+    body: BulkDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    if not body.incident_ids:
+        return BulkDeleteResponse(deleted_count=0)
+
+    stmt = delete(Incident).where(Incident.id.in_(body.incident_ids))
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return BulkDeleteResponse(deleted_count=result.rowcount or 0)
 
 
 @router.get("/{incident_id}", response_model=IncidentOut)

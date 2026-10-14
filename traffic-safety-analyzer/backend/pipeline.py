@@ -94,6 +94,64 @@ class PipelineMetrics:
         }
 
 
+class VideoRecorder:
+    """Records live annotated CCTV stream frames to an MP4 video file."""
+
+    def __init__(self, output_dir: Path, fps: int = 10) -> None:
+        self.output_dir = output_dir
+        self.fps = fps
+        self._writer: Optional[cv2.VideoWriter] = None
+        self._filename: Optional[str] = None
+        self._filepath: Optional[Path] = None
+        self._frame_count: int = 0
+        self._start_time: float = 0.0
+        self._is_recording: bool = False
+
+    @property
+    def is_recording(self) -> bool:
+        return self._is_recording
+
+    def start(self, frame_shape: Tuple[int, int]) -> str:
+        if self._is_recording:
+            return self._filename or ""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        h, w = frame_shape[:2]
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        self._filename = f"cctv_recording_{ts}.mp4"
+        self._filepath = self.output_dir / self._filename
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        self._writer = cv2.VideoWriter(str(self._filepath), fourcc, float(self.fps), (w, h))
+        self._frame_count = 0
+        self._start_time = time.monotonic()
+        self._is_recording = True
+        logger.info(f"Started video recording: {self._filepath}")
+        return self._filename
+
+    def write_frame(self, frame: np.ndarray) -> None:
+        if self._is_recording and self._writer is not None:
+            self._writer.write(frame)
+            self._frame_count += 1
+
+    def stop(self) -> Optional[dict]:
+        if not self._is_recording:
+            return None
+        self._is_recording = False
+        duration = round(time.monotonic() - self._start_time, 1)
+        if self._writer is not None:
+            self._writer.release()
+            self._writer = None
+        size_bytes = self._filepath.stat().st_size if (self._filepath and self._filepath.exists()) else 0
+        info = {
+            "filename": self._filename,
+            "path": str(self._filepath),
+            "frame_count": self._frame_count,
+            "duration_sec": duration,
+            "size_kb": round(size_bytes / 1024, 1),
+        }
+        logger.info(f"Stopped video recording: {info}")
+        return info
+
+
 class ViolationPipeline:
     """Full AI pipeline for a single camera stream."""
 
@@ -112,6 +170,10 @@ class ViolationPipeline:
         self._person_tracker  = SimpleIOUTracker(iou_threshold=0.35, max_missed=8)
         self._helmet_analyzer = HelmetViolationAnalyzer()
         self._triple_analyzer = TripleRidingAnalyzer()
+        self._recorder = VideoRecorder(
+            output_dir=settings.evidence_dir / "recordings",
+            fps=settings.camera_fps_target,
+        )
 
         self.metrics = PipelineMetrics()
         self._running = False
@@ -119,6 +181,7 @@ class ViolationPipeline:
 
         # Latest annotated frame (JPEG bytes for WS streaming)
         self._latest_frame_b64: Optional[str] = None
+        self._latest_annotated_frame: Optional[np.ndarray] = None
 
     # ------------------------------------------------------------------ #
     # Control                                                              #
@@ -133,6 +196,8 @@ class ViolationPipeline:
 
     async def stop(self) -> None:
         self._running = False
+        if self._recorder.is_recording:
+            self._recorder.stop()
         if self._task and not self._task.done():
             self._task.cancel()
             try:
@@ -144,6 +209,33 @@ class ViolationPipeline:
         self._helmet_analyzer.reset()
         self._triple_analyzer.reset()
         logger.info("ViolationPipeline stopped.")
+
+    def start_recording(self, frame_shape: Tuple[int, int] = (720, 1280)) -> str:
+        return self._recorder.start(frame_shape)
+
+    def stop_recording(self) -> Optional[dict]:
+        return self._recorder.stop()
+
+    def save_snapshot(self) -> Optional[dict]:
+        if self._latest_annotated_frame is None:
+            return None
+        snapshot_dir = settings.evidence_dir / "snapshots"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"snapshot_{ts}.jpg"
+        filepath = snapshot_dir / filename
+        cv2.imwrite(str(filepath), self._latest_annotated_frame)
+        stat = filepath.stat()
+        return {
+            "filename": filename,
+            "path": str(filepath),
+            "size_kb": round(stat.st_size / 1024, 1),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @property
+    def is_recording(self) -> bool:
+        return self._recorder.is_recording
 
     @property
     def latest_frame_b64(self) -> Optional[str]:
@@ -218,7 +310,11 @@ class ViolationPipeline:
             annotated, captured
         )
 
-        # 6. Encode frame for streaming
+        # 6. Record frame if active
+        if self._recorder.is_recording:
+            self._recorder.write_frame(annotated)
+
+        # 7. Encode frame for streaming
         self._encode_frame(annotated)
 
         # 7. Periodic dedup cache cleanup
@@ -349,20 +445,34 @@ class ViolationPipeline:
         cv2.putText(frame, hud_text, (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (240, 240, 240), 1, cv2.LINE_AA)
         cv2.circle(frame, (w - 20, 16), 5, density_color, -1)
 
-        # Draw track badges
+        if self._recorder.is_recording:
+            cv2.putText(frame, "REC", (w - 75, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.circle(frame, (w - 40, 16), 5, (0, 0, 255), -1)
+
+        # Draw motion trajectory trails and track badges
         for t in tracks:
+            if len(t.history) >= 2:
+                pts = np.array(t.history, dtype=np.int32).reshape((-1, 1, 2))
+                trail_color = (0, 240, 255) if t.class_name in ("car", "motorcycle") else (255, 180, 50)
+                cv2.polylines(frame, [pts], isClosed=False, color=trail_color, thickness=2, lineType=cv2.LINE_AA)
+                cv2.circle(frame, t.history[-1], 3, (0, 255, 255), -1)
+
             x1, y1, x2, y2 = t.bbox
-            label = f"#{t.track_id}"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-            cv2.rectangle(frame, (x1, y2 + 2), (x1 + tw + 4, y2 + th + 6), (20, 20, 20), -1)
+            speed_str = f" {int(t.speed_px_s)}px/s" if t.speed_px_s > 8 else ""
+            label = f"#{t.track_id}{speed_str}"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.38, 1)
+            badge_y1 = min(h - 18, y2 + 2)
+            badge_y2 = min(h - 2, badge_y1 + th + 6)
+            cv2.rectangle(frame, (x1, badge_y1), (x1 + tw + 6, badge_y2), (20, 20, 20), -1)
             cv2.putText(
-                frame, label, (x1 + 2, y2 + th + 4),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 230, 0), 1, cv2.LINE_AA
+                frame, label, (x1 + 3, badge_y1 + th + 3),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 230, 0), 1, cv2.LINE_AA
             )
         return frame
 
     def _encode_frame(self, frame: np.ndarray) -> None:
         try:
+            self._latest_annotated_frame = frame.copy()
             _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             self._latest_frame_b64 = base64.b64encode(buf).decode("utf-8")
         except Exception as exc:

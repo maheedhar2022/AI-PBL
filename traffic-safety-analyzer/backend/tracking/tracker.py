@@ -21,6 +21,8 @@ class Track:
     age: int = 0          # frames since first seen
     missed: int = 0       # consecutive frames missed
     is_active: bool = True
+    history: List[Tuple[int, int]] = field(default_factory=list)
+    speed_px_s: float = 0.0
 
 
 class SimpleIOUTracker:
@@ -87,6 +89,16 @@ class SimpleIOUTracker:
             t.age += 1
             t.missed = 0
             t.is_active = True
+            cx = (t.bbox[0] + t.bbox[2]) // 2
+            cy = (t.bbox[1] + t.bbox[3]) // 2
+            t.history.append((cx, cy))
+            if len(t.history) > 20:
+                t.history.pop(0)
+            if len(t.history) >= 2:
+                dx = t.history[-1][0] - t.history[-2][0]
+                dy = t.history[-1][1] - t.history[-2][1]
+                step_dist = float(np.hypot(dx, dy))
+                t.speed_px_s = round(0.7 * t.speed_px_s + 0.3 * (step_dist * 10.0), 1)
 
         # Increment missed counter for unmatched tracks
         for tid in unmatched_track_ids:
@@ -98,6 +110,8 @@ class SimpleIOUTracker:
         for det in unmatched_dets:
             tid = self._next_id
             self._next_id += 1
+            cx = (det["bbox"][0] + det["bbox"][2]) // 2
+            cy = (det["bbox"][1] + det["bbox"][3]) // 2
             self._tracks[tid] = Track(
                 track_id=tid,
                 class_id=det["class_id"],
@@ -107,6 +121,8 @@ class SimpleIOUTracker:
                 age=0,
                 missed=0,
                 is_active=True,
+                history=[(cx, cy)],
+                speed_px_s=0.0,
             )
 
         # Prune dead tracks

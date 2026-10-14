@@ -51,6 +51,9 @@ class Settings(BaseSettings):
 
     def ensure_dirs(self) -> None:
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
+        (self.evidence_dir / "recordings").mkdir(parents=True, exist_ok=True)
+        (self.evidence_dir / "snapshots").mkdir(parents=True, exist_ok=True)
+        Path("./uploads").mkdir(parents=True, exist_ok=True)
         self.dataset_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
